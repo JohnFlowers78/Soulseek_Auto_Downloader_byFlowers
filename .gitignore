@@ -1,0 +1,31 @@
+# --- segredos: NUNCA versionar -------------------------------------------
+.env
+config.json
+config.local.json
+*.token
+*.secret
+credenciais*.json
+
+# --- dados e resultados locais -------------------------------------------
+data/
+downloads/
+musicas/
+espectrogramas/
+*.log
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- editores e sistema ---------------------------------------------------
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

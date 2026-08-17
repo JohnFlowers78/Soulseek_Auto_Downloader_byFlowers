@@ -1,0 +1,20 @@
+# --- núcleo ---------------------------------------------------------------
+requests>=2.32          # chamadas HTTP em geral
+
+# --- Soulseek -------------------------------------------------------------
+slskd-api>=0.1.5        # wrapper Python da API REST do slskd
+
+# --- Spotify --------------------------------------------------------------
+spotipy>=2.24           # cliente da Web API (fluxo OAuth Authorization Code)
+
+# --- testes ---------------------------------------------------------------
+pytest>=8.0
+
+# --- a decidir (não instalar ainda) ---------------------------------------
+# A leitura de playlist de terceiro (via navegador) e a tela do app dependem de
+# escolhas que ainda estão em aberto no TODO.md. Ficam de fora até a decisão:
+#   playwright   -> ler o DOM da página do Spotify
+#   PySide6      -> se a tela for janela desktop
+#   flask        -> se a tela for página local no navegador
+#
+# O ffmpeg NÃO é pacote Python: é programa de sistema, instalado à parte.
