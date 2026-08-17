@@ -19,6 +19,7 @@ _Atualizado em: 16/08/2026_
 |---|---|
 | **[FUNCIONALIDADES.md](FUNCIONALIDADES.md)** | Tudo que o app deve fazer — o escopo combinado, por módulo |
 | **[TODO.md](TODO.md)** | O que falta construir, em fases, com caixinhas para riscar |
+| **[ARQUITETURA.md](ARQUITETURA.md)** | As decisões estruturais e o custo de cada uma |
 | **[IDEIAS.md](IDEIAS.md)** | Documento vivo: descobertas de operação e ideias futuras |
 | **[GUIA_SOULSEEK.md](GUIA_SOULSEEK.md)** | A parte dura: sintaxe de busca, limite de buscas, API do slskd |
 
@@ -131,13 +132,17 @@ Link da playlist
 
 ## 🚦 Estado atual
 
-Primeira pedra assentada. O que já existe e roda:
+O núcleo que não depende de nada instalado já está de pé — **137 testes passando**:
 
 - **`src/normalizador.py`** — o gerador de variantes de busca, que resolve exatamente a dor
-  dos caracteres especiais. Coberto por testes.
-- Documentação completa do escopo (os 4 MDs acima).
+  dos caracteres especiais.
+- **`src/modelos.py`** — o vocabulário comum aos dois motores (`Faixa`, `Candidato`,
+  `Transferencia`) e as três listas da tela.
+- **`src/qualidade.py`** — o filtro de formato/bitrate e o ranking. Estima o bitrate quando
+  o motor não informa, e diversifica por usuário na hora de escolher o que baixar.
+- Documentação completa do escopo (os 5 MDs acima).
 
-O resto está mapeado no [TODO.md](TODO.md), em fases, começando pela que dá para testar sem
+O resto está mapeado no [TODO.md](TODO.md), em fases, começando pelas que dão para testar sem
 depender de nada instalado.
 
 ### Rodar os testes
