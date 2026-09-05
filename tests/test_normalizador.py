@@ -85,6 +85,18 @@ def test_numeros_sobrevivem():
     assert sem_pontuacao("Blink-182") == "Blink 182"
 
 
+def test_sublinhado_vira_espaco():
+    # Em regex "_" conta como caractere de palavra, então [^\w\s] o deixaria passar.
+    # E nome de arquivo de DJ é cheio deles — se vazasse, a busca não acharia nada.
+    assert sem_pontuacao("Artista_-_Titulo") == "Artista Titulo"
+    assert sem_pontuacao("Nao_Vou_Ficar") == "Nao Vou Ficar"
+
+
+def test_nenhuma_variante_deixa_sublinhado_passar():
+    for v in gerar_variantes("Daft_Punk", "One_More_Time"):
+        assert "_" not in v.consulta
+
+
 # ---------------------------------------------------------------------- participação
 
 

@@ -4,7 +4,7 @@ A parte dura e específica: por que as buscas falham, quanto dá para buscar sem
 banimento, e como o app conversa com a rede. Anotado aqui porque é conhecimento que se perde
 entre uma versão e outra.
 
-_Atualizado em: 16/08/2026_
+_Atualizado em: 05/09/2026_
 
 ---
 

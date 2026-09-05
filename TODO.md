@@ -4,7 +4,7 @@ Lista viva de pendências para **nunca esquecer nada**. Riscar (`[x]`) ao conclu
 O escopo de cada item está no [FUNCIONALIDADES.md](FUNCIONALIDADES.md), as decisões
 estruturais no [ARQUITETURA.md](ARQUITETURA.md); aqui é só o "o que falta fazer".
 
-_Atualizado em: 16/08/2026_
+_Atualizado em: 05/09/2026_
 
 ---
 
@@ -31,6 +31,11 @@ _Atualizado em: 16/08/2026_
       `Transferencia`), num lugar só, iguais para os dois motores.
 - [x] **`qualidade.py`** — decidir se um arquivo presta (AIFF/WAV/FLAC/MP3 320/M4A) e
       ranquear candidatos. Estima o bitrate quando o motor não informa.
+- [x] **`qualidade.py` — comparação com o acervo** — `vale_a_pena_trocar()` e
+      `filtrar_upgrades()`: a pergunta deixa de ser "presta?" e vira "é melhor que o meu?",
+      com o motivo escrito para aparecer na tela.
+- [x] **`leitor_pasta.py`** — varrer uma pasta, ler tags e especificações pelo `ffprobe`,
+      e tirar artista/título do nome do arquivo quando não houver tags.
 - [ ] **`config.py`** — configurações em JSON: pastas, credenciais, formatos aceitos,
       limites. Sem segredo no código, arquivo fora do repositório.
 - [ ] **`sistema.py`** — o que muda entre Windows e macOS isolado num módulo só
@@ -89,10 +94,24 @@ _Atualizado em: 16/08/2026_
 ## 📊 Fase 6 — Espectrograma
 
 - [ ] **`espectro.py`** — `ffmpeg -lavfi showspectrumpic` gerando o PNG por faixa.
+      **É a próxima peça**, e a única que trava o modo "melhorar o acervo".
+- [ ] **Medir a frequência de corte** e comparar com o bitrate declarado → é o que preenche
+      `ArquivoLocal.suspeito` e destrava a regra do "seu arquivo mente sobre si mesmo".
 - [ ] Miniatura ao lado de cada música, nas duas telas.
-- [ ] **Comparação lado a lado** das versões da mesma música.
-- [ ] **Medir a frequência de corte** e comparar com o bitrate declarado → marcar os
-      arquivos maquiados.
+- [ ] **Comparação de N versões** lado a lado (não de duas): todos os gráficos juntos, cada
+      um com rótulo, formato, bitrate e o corte medido embaixo.
+- [ ] **Marcar a escolhida** e guardar/descartar as demais.
+
+## 📁 Fase 6b — Melhorar o acervo (depende da Fase 6)
+
+- [x] **Varrer a pasta** e ler o que cada arquivo é (`leitor_pasta.py`).
+- [x] **Decidir o que é upgrade de verdade** (`qualidade.py`).
+- [ ] **Tela de escolher a pasta** + lista do que foi encontrado, mostrando de onde veio
+      cada nome e **deixando corrigir antes de buscar**.
+- [ ] **Analisar cada arquivo do acervo** pelo espectrograma antes de sair buscando.
+- [ ] **Agrupar em `Comparacao`** as versões da mesma música (as do acervo + as baixadas).
+- [ ] Aviso de tempo: uma pasta de 200 músicas são 200+ buscas → **mais de uma hora** pelo
+      limite de 34/220 s. O usuário precisa saber disso antes de começar, não no meio.
 
 ## 🕵️ Fase 7 — Caçar o que faltou
 

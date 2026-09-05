@@ -16,9 +16,9 @@ Duas coisas moldam este módulo:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from modelos import Candidato
+from modelos import ArquivoLocal, Candidato
 
 # ---------------------------------------------------------------------------
 # Critérios
@@ -274,3 +274,143 @@ def escolher_melhores(
                 escolhidos.append(avaliacao)
 
     return escolhidos
+
+
+# ---------------------------------------------------------------------------
+# Melhorar o acervo: a pergunta deixa de ser "presta?" e vira "é melhor que o meu?"
+# ---------------------------------------------------------------------------
+#
+# Este é o ponto em que o módulo muda de sentido. Vindo de uma playlist, qualquer arquivo
+# aprovado serve — não há nada com que comparar. Vindo de uma pasta do usuário, aprovar
+# não basta: baixar um FLAC para substituir um FLAC é gastar cota de busca, banda e o
+# tempo do usuário para terminar exatamente onde começou.
+
+NIVEL_DESCONHECIDO = 0
+NIVEL_COM_PERDA_FRACO = 100
+NIVEL_COM_PERDA_BOM = 200
+NIVEL_SEM_PERDA = 300
+NIVEL_SEM_PERDA_24 = 350
+NIVEL_SEM_PERDA_ALTA_TAXA = 400
+
+_NOME_DO_NIVEL = {
+    NIVEL_DESCONHECIDO: "qualidade desconhecida",
+    NIVEL_COM_PERDA_FRACO: "com perda, abaixo do ideal",
+    NIVEL_COM_PERDA_BOM: "com perda, no topo útil",
+    NIVEL_SEM_PERDA: "sem perda (16 bits)",
+    NIVEL_SEM_PERDA_24: "sem perda (24 bits)",
+    NIVEL_SEM_PERDA_ALTA_TAXA: "sem perda (24 bits, alta taxa)",
+}
+
+
+def descrever_nivel(nivel: int) -> str:
+    return _NOME_DO_NIVEL.get(nivel, "qualidade desconhecida")
+
+
+def nivel_de_qualidade(
+    formato: str,
+    bitrate_kbps: int | None = None,
+    profundidade_bits: int | None = None,
+    taxa_amostragem_hz: int | None = None,
+    criterios: Criterios | None = None,
+) -> int:
+    """Coloca um arquivo num degrau comparável.
+
+    Repare que **bitrate não entra na conta dos sem perda**. Um FLAC de 700 kbps e um de
+    1100 kbps carregam o mesmo áudio original — a diferença é a densidade da música, não
+    a qualidade. Quem separa os degraus ali é profundidade de bits e taxa de amostragem.
+    """
+    criterios = criterios or Criterios()
+    formato = (formato or "").lower()
+
+    if formato in criterios.formatos_sem_perda or formato in ("alac", "ape", "wv"):
+        if profundidade_bits and profundidade_bits >= 24:
+            if taxa_amostragem_hz and taxa_amostragem_hz > 48_000:
+                return NIVEL_SEM_PERDA_ALTA_TAXA
+            return NIVEL_SEM_PERDA_24
+        return NIVEL_SEM_PERDA
+
+    if not formato:
+        return NIVEL_DESCONHECIDO
+
+    if bitrate_kbps is None:
+        return NIVEL_DESCONHECIDO
+
+    minimo = _minimo_para(formato, criterios)
+    if bitrate_kbps >= minimo - criterios.tolerancia_bitrate_kbps:
+        return NIVEL_COM_PERDA_BOM
+    return NIVEL_COM_PERDA_FRACO
+
+
+def nivel_do_arquivo_local(arquivo: ArquivoLocal, criterios: Criterios | None = None) -> int:
+    return nivel_de_qualidade(
+        arquivo.formato,
+        arquivo.bitrate_kbps,
+        arquivo.profundidade_bits,
+        arquivo.taxa_amostragem_hz,
+        criterios,
+    )
+
+
+def nivel_do_candidato(avaliacao: Avaliacao, criterios: Criterios | None = None) -> int:
+    candidato = avaliacao.candidato
+    return nivel_de_qualidade(
+        candidato.extensao,
+        avaliacao.bitrate_usado_kbps or candidato.bitrate_kbps,
+        candidato.profundidade_bits,
+        candidato.taxa_amostragem_hz,
+        criterios,
+    )
+
+
+def vale_a_pena_trocar(
+    atual: ArquivoLocal,
+    avaliacao: Avaliacao,
+    criterios: Criterios | None = None,
+) -> tuple[bool, str]:
+    """Diz se este candidato melhora o que o usuário já tem — e explica por quê.
+
+    O motivo volta escrito porque vai para a tela. Quando o app **não** baixa algo, o
+    usuário precisa saber que foi decisão e não falha: "achei, mas é a mesma coisa que
+    você já tem" é informação; silêncio é bug aparente.
+    """
+    if not avaliacao.aceito:
+        return False, f"reprovado antes da comparação: {avaliacao.motivo}"
+
+    nivel_atual = nivel_do_arquivo_local(atual, criterios)
+    nivel_novo = nivel_do_candidato(avaliacao, criterios)
+
+    # O arquivo do acervo mente sobre si mesmo (diz 320, corta em 16 kHz). Nesse caso o
+    # degrau declarado dele não vale nada — qualquer versão íntegra e boa é ganho real.
+    if atual.suspeito and nivel_novo >= NIVEL_COM_PERDA_BOM:
+        return True, "o arquivo do acervo é suspeito de transcodificação — vale conferir esta"
+
+    if nivel_atual == NIVEL_DESCONHECIDO:
+        return True, "não dá para saber a qualidade do arquivo atual — vale comparar"
+
+    if nivel_novo > nivel_atual:
+        return True, f"sobe de {descrever_nivel(nivel_atual)} para {descrever_nivel(nivel_novo)}"
+
+    if nivel_novo == nivel_atual:
+        return False, f"mesma qualidade do que você já tem ({descrever_nivel(nivel_atual)})"
+
+    return False, f"seria piora: {descrever_nivel(nivel_novo)} contra {descrever_nivel(nivel_atual)}"
+
+
+def filtrar_upgrades(
+    atual: ArquivoLocal,
+    aprovados: list[Avaliacao],
+    criterios: Criterios | None = None,
+) -> tuple[list[Avaliacao], list[tuple[Avaliacao, str]]]:
+    """Separa os que melhoram o acervo dos que não melhoram.
+
+    Devolve ``(vale_baixar, descartados_com_motivo)`` — os dois lados interessam à tela.
+    """
+    valem: list[Avaliacao] = []
+    descartados: list[tuple[Avaliacao, str]] = []
+    for avaliacao in aprovados:
+        melhora, motivo = vale_a_pena_trocar(atual, avaliacao, criterios)
+        if melhora:
+            valem.append(avaliacao)
+        else:
+            descartados.append((avaliacao, motivo))
+    return valem, descartados

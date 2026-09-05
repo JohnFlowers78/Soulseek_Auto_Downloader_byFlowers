@@ -4,7 +4,7 @@ Documento vivo, separado do README: aqui ficam as **observações de funcionamen
 ouro na operação e as **ideias futuras** discutidas durante o desenvolvimento — para nada se
 perder entre uma versão e outra. As observações mais importantes também vão para o README.
 
-_Atualizado em: 16/08/2026_
+_Atualizado em: 05/09/2026_
 
 ---
 
@@ -37,6 +37,27 @@ o usuário mata o processo no meio.
 junto. Para quem é DJ, "Extended Mix" muitas vezes **é** a faixa certa — remover cedo demais
 faria o app baixar a versão errada com ar de acerto. Já o `feat.` quase nunca está no nome do
 arquivo, então sai antes sem prejuízo.
+
+### Na pasta, a pergunta é outra
+Vindo de playlist, a pergunta é "esse arquivo presta?". Vindo da pasta do usuário, é "esse
+arquivo é **melhor que o meu**?". Parece detalhe e não é: sem a segunda pergunta, o modo
+"melhorar o acervo" baixaria um FLAC para substituir um FLAC — cota de busca, banda e tempo
+do usuário gastos para terminar exatamente onde começou.
+
+O reflexo disso na varredura é bonito: ela aceita **OGG, WMA e MP3 128**, formatos que o
+filtro de playlist rejeita. No modo playlist eles são lixo; no modo acervo são o **alvo**.
+
+### "311 - Down" e "01 - Artista - Título" têm a mesma forma
+Nome de arquivo é ambíguo por natureza, e essa é a ambiguidade que mais dói: `311` é uma
+banda, mas o padrão é idêntico ao de numeração de faixa. Uma regra ingênua ("tire o número
+do começo") transforma **50 Cent em Cent**.
+
+O desempate confiável não está no número, está **no que sobra**: numeração vem antes de
+`Artista - Título`, então depois de removê-la ainda resta um separador. Se não resta, o
+número era o próprio artista. A mesma regra resolve o vinil de graça — em `A1. Artista -
+Título` o `A1` sai, e em `A1 - Caught in the Middle`, do grupo A1, ele fica.
+
+A exceção é o zero à esquerda: `01`, `04`, `09` só existem como numeração.
 
 ### O ISRC é a rede de segurança contra a faixa errada
 Quando a playlist é lida pela API oficial, cada faixa vem com **ISRC** — o código único da
@@ -72,10 +93,17 @@ Quando a mesma música vem em três fontes, o lado a lado dos espectrogramas é 
 trabalho manual. Com o corte medido em número, o app pode já **ordenar do melhor para o pior**
 e deixar o vencedor marcado — a comparação visual vira conferência, não decisão.
 
-### Um "modo acervo" além do modo playlist
-A mesma máquina serve para varrer uma pasta de músicas que **você já tem** e apontar quais
-estão em qualidade ruim ou são transcodificação disfarçada — e então buscar substituto na
-rede. A playlist do Spotify é uma porta de entrada; a análise de qualidade vale para tudo.
+### ~~Um "modo acervo" além do modo playlist~~ — virou funcionalidade (§14)
+A ideia foi pedida e entrou no escopo. O que **ainda** não foi feito e continua valendo: usar
+o mesmo modo só para **relatar**, sem buscar nada — varrer o acervo inteiro e listar o que é
+transcodificação disfarçada, como um exame de saúde da biblioteca. Buscar substituto para 2000
+faixas esbarraria no limite de buscas por dias; só apontar o que está podre é instantâneo.
+
+### O nome que o usuário corrige deveria ser aprendido
+Quando o nome sai do arquivo em vez das tags, ele erra às vezes, e o usuário vai corrigir na
+tela antes de buscar. Essa correção é ouro: se ele corrigiu `Artista_Fulano` para
+`Artista Fulano` uma vez, o padrão provavelmente se repete na pasta inteira. Vale oferecer
+"aplicar a mesma correção nas outras N faixas parecidas".
 
 ### Ler o disco inteiro, não só a faixa
 Quando várias faixas da playlist são do mesmo álbum, buscar o **álbum** de uma vez é mais

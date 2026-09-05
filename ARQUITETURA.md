@@ -3,7 +3,7 @@
 Por que o app é montado assim. Cada decisão aqui tem custo, e o custo está escrito junto —
 para quando bater a dúvida daqui a três meses.
 
-_Atualizado em: 16/08/2026_
+_Atualizado em: 05/09/2026_
 
 ---
 
@@ -45,7 +45,8 @@ link de playlist do Spotify   ─┐
 playlist de terceiro (DOM)    ─┤
 nome escrito à mão            ─┼──►  list[Faixa]  ──►  normalizador ──► busca ──► download
 link de faixa do Spotify      ─┤
-link do SoundCloud            ─┘
+link do SoundCloud            ─┤
+uma pasta do disco            ─┘
 ```
 
 Uma **busca avulsa é uma lista de uma faixa só**. Não existe caminho de código separado para
@@ -53,6 +54,37 @@ ela: mesma normalização, mesmo filtro de qualidade, mesmo ranking, mesma fila.
 aparecer "importar de um arquivo .txt" ou "ler a fila do Rekordbox", é só mais uma entrada.
 
 O módulo `entradas.py` é quem olha o que o usuário colou e decide de qual porta veio.
+
+### A pasta é a única entrada que traz bagagem
+
+Todas as outras entradas dão só o **nome** da música. A pasta dá o nome **e um arquivo que
+já existe** — e isso muda a pergunta lá na frente:
+
+```
+playlist  →  "esse arquivo presta?"            →  qualidade.avaliar()
+pasta     →  "esse arquivo é melhor que o meu?" →  qualidade.vale_a_pena_trocar()
+```
+
+Sem essa segunda pergunta, o modo "melhorar o acervo" baixaria um FLAC para substituir um
+FLAC: cota de busca, banda e tempo do usuário gastos para terminar onde começou. É por isso
+que `ArquivoLocal` carrega o degrau de qualidade real do arquivo, e não só o nome.
+
+E é por isso que a varredura aceita **OGG, WMA e MP3 128**, formatos que o filtro de playlist
+rejeita: ali eles são lixo, aqui são o alvo.
+
+### Ler tags com `ffprobe`, não com uma biblioteca nova
+
+O `ffprobe` vem junto com o ffmpeg, que **já é requisito** para o espectrograma. Ele lê tags
+e especificações técnicas (duração, bitrate, taxa, profundidade de bits) numa chamada só, em
+qualquer formato que o ffmpeg abra — MP3, FLAC, WAV, AIFF, WMA, o que aparecer.
+
+Uma dependência de sistema em vez de duas coisas para instalar e manter.
+
+O custo dessa escolha está isolado: toda a lógica mora em `montar_arquivo_local()`, que
+recebe o JSON já pronto. A chamada ao programa é uma função fina de cinco linhas. Resultado
+prático: **a leitura se testa com JSON escrito à mão**, sem ffmpeg instalado e sem arquivo
+de áudio de verdade. E, sem ffmpeg, o módulo ainda lê os nomes pelo nome do arquivo em vez
+de travar.
 
 ## 🔌 Dois motores atrás de uma porta só
 

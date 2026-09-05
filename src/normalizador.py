@@ -57,8 +57,14 @@ _RE_FEAT_SOLTO = re.compile(
 #: Qualquer coisa entre parênteses, colchetes ou chaves: ``(Original Mix)``, ``[2011]``.
 _RE_PARENTESES = re.compile(r"[\(\[\{][^)\]\}]*[\)\]\}]")
 
-#: Tudo que não é letra, número ou espaço. Inclui o hífen — que sai SEMPRE.
-_RE_NAO_ALFANUMERICO = re.compile(r"[^\w\s]", re.UNICODE)
+#: Tudo que não é letra nem número. Inclui o hífen — que sai SEMPRE.
+#:
+#: O ``_`` está explícito de propósito: em regex ele conta como "caractere de palavra",
+#: então ``[^\w\s]`` o deixaria passar. E sublinhado é praga em nome de arquivo de DJ
+#: (``Artista_-_Titulo.mp3``) — se vazasse para a consulta, a busca não acharia nada.
+#: Acentos continuam preservados aqui: ``\w`` em Python 3 é ciente de Unicode, e tirar
+#: acento é trabalho de outra função.
+_RE_NAO_ALFANUMERICO = re.compile(r"[\W_]", re.UNICODE)
 
 _RE_ESPACOS = re.compile(r"\s+")
 

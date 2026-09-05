@@ -6,7 +6,7 @@ comportamento esperado escrito de forma que dê para conferir depois se ficou ce
 Aqui é o **"o quê"**. O **"o que falta"** está no [TODO.md](TODO.md); o **"como"** e as
 descobertas ficam no [IDEIAS.md](IDEIAS.md) e no [GUIA_SOULSEEK.md](GUIA_SOULSEEK.md).
 
-_Atualizado em: 16/08/2026_
+_Atualizado em: 05/09/2026_
 
 ---
 
@@ -228,6 +228,75 @@ resultados"_
 > lida do navegador, nome digitado, link de faixa — tudo vira a mesma lista de `Faixa` e
 > desce pelo mesmo cano. Por isso o núcleo trabalha com **lista de faixas**, nunca com
 > "playlist": uma busca avulsa é só uma lista de uma faixa só. Ver [ARQUITETURA.md](ARQUITETURA.md).
+
+## 14. 📁 Melhorar o acervo — partir de uma pasta
+
+**Pedido:** _"eu também posso fornecer uma pasta (pasta que carrega arquivos) com músicas
+dentro e todas essas músicas passaram pelo SPEK para serem analisadas e buscadas com o nome
+delas dentro do soulseek buscando novas assim como o mecanismo de busca que já citei"_ —
+_"Ao encontrar, baixar as músicas encontradas e analisá-las também no spek apresentando
+gráficos ao lado das versões antigas para a seleção por meio de análise visual do usuário!
+Comparar todas as músicas comparadas (às vezes podem ser mais de 2 → mais de 2 na mesma pasta
+&& mais de duas baixadas)"_
+
+O fluxo, de ponta a ponta:
+
+1. **Apontar uma pasta.** O app varre (inclusive subpastas) e lista o que achou.
+2. **Analisar cada arquivo que já é seu** — o espectrograma e as especificações reais.
+3. **Descobrir o nome de cada música**, para poder buscar.
+4. **Buscar versão melhor** no Soulseek, com as mesmas variantes de sempre.
+5. **Baixar o que for upgrade** de verdade.
+6. **Analisar o que baixou** e mostrar os gráficos **lado a lado com os antigos**.
+7. **Você escolhe olhando**, e o app fica com o que você marcar.
+
+### A virada de lógica: não é "presta?", é "é melhor que o meu?"
+
+Vindo de uma playlist, qualquer arquivo aprovado serve — não há nada com que comparar.
+Vindo da sua pasta, aprovar não basta: **baixar um FLAC para substituir um FLAC** é gastar
+cota de busca, banda e o seu tempo para terminar exatamente onde começou.
+
+Por isso a decisão passa por uma segunda pergunta, e **o motivo aparece escrito na tela**:
+
+| Você tem | Achou | Decisão |
+|---|---|---|
+| MP3 128 | FLAC | ✅ sobe de "com perda, abaixo do ideal" para "sem perda" |
+| MP3 128 | MP3 320 | ✅ sobe de degrau |
+| FLAC 16 bits | FLAC 24/96 | ✅ sobe de degrau |
+| FLAC | MP3 320 | ❌ seria piora |
+| FLAC | FLAC igual | ❌ mesma qualidade — não compensa |
+| MP3 320 **suspeito** | MP3 320 | ✅ o seu mente sobre si mesmo, vale conferir |
+| qualidade desconhecida | qualquer coisa boa | ✅ vale comparar |
+
+Quando o app **não** baixa, você precisa saber que foi decisão e não falha. "Achei, mas é a
+mesma coisa que você já tem" é informação; silêncio vira bug aparente.
+
+### A varredura aceita formato ruim de propósito
+
+OGG, WMA, MP3 128 — os formatos que o filtro de playlist rejeita entram aqui. São
+**exatamente** os arquivos que mais valem a troca. Varrer só o que "presta" deixaria de fora
+o alvo da funcionalidade.
+
+### De onde sai o nome da música
+
+- **Tags do arquivo** primeiro (artista, título, álbum, e o ISRC quando houver).
+- **Nome do arquivo** como reserva, tratando o que acervo de DJ costuma ter grudado:
+  numeração (`01 - `, `A1. `), rótulo de gravadora (`[Label001]`), site
+  (`www.site.com_`), selo de qualidade no fim (`(320kbps)`, `[FLAC]`, `[2011]`) e
+  sublinhado no lugar de espaço.
+- **A tela mostra de onde veio** cada nome ("tags" / "nome do arquivo" / "tags + nome do
+  arquivo") e **deixa corrigir antes de buscar** — nome de arquivo erra, e uma busca com
+  nome errado é cota queimada.
+- Duas coisas que o leitor **não** faz: chutar artista quando não há separador (artista
+  errado vira termo obrigatório e derruba todos os resultados), e remover `(Original Mix)` /
+  `(Extended Mix)` — para DJ isso **é** o nome da faixa. Quem decide removê-los é o
+  normalizador, na variante certa.
+
+### A comparação é de N versões, não de duas
+
+Foi pedido explicitamente: pode haver **mais de duas na pasta** e **mais de duas baixadas**.
+Três rips do mesmo vinil mais dois FLACs da rede é caso comum. A tela mostra todos os
+espectrogramas juntos, cada um com seu rótulo ("no seu acervo" / "baixada de fulano"), com
+formato, bitrate e a **frequência de corte medida** embaixo de cada gráfico.
 
 ---
 

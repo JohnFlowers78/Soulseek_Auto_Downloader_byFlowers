@@ -9,7 +9,7 @@ O que sobrar — o que não foi achado ou não terminou de baixar — vira uma l
 o app procura essas faixas de **graça** (SoundCloud / Hypeddit) e, em último caso, monta uma
 **cotação de compra** com os preços de cada loja.
 
-_Atualizado em: 16/08/2026_
+_Atualizado em: 05/09/2026_
 
 ---
 
@@ -132,14 +132,17 @@ Link da playlist
 
 ## 🚦 Estado atual
 
-O núcleo que não depende de nada instalado já está de pé — **137 testes passando**:
+O núcleo que não depende de nada instalado já está de pé — **229 testes passando**:
 
 - **`src/normalizador.py`** — o gerador de variantes de busca, que resolve exatamente a dor
   dos caracteres especiais.
 - **`src/modelos.py`** — o vocabulário comum aos dois motores (`Faixa`, `Candidato`,
-  `Transferencia`) e as três listas da tela.
+  `Transferencia`, `ArquivoLocal`) e as três listas da tela.
 - **`src/qualidade.py`** — o filtro de formato/bitrate e o ranking. Estima o bitrate quando
-  o motor não informa, e diversifica por usuário na hora de escolher o que baixar.
+  o motor não informa, diversifica por usuário na hora de escolher, e sabe dizer se um
+  achado é **upgrade de verdade** sobre o que você já tem.
+- **`src/leitor_pasta.py`** — varre uma pasta do disco e descobre o que cada arquivo é:
+  tags pelo `ffprobe`, e artista/título tirados do nome quando não há tags.
 - Documentação completa do escopo (os 5 MDs acima).
 
 O resto está mapeado no [TODO.md](TODO.md), em fases, começando pelas que dão para testar sem

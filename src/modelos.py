@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 
 class EstadoTransferencia(str, Enum):
@@ -109,6 +110,69 @@ class Transferencia:
             EstadoTransferencia.FALHOU,
             EstadoTransferencia.CANCELADA,
         }
+
+
+@dataclass
+class ArquivoLocal:
+    """Uma música que **já está no disco** do usuário.
+
+    É a matéria-prima do modo "melhorar o acervo": o app lê a pasta, descobre o que cada
+    arquivo é de verdade, e sai atrás de versão melhor. Note que aqui interessa saber
+    inclusive que o arquivo é **ruim** — um MP3 128 é justamente o que mais vale trocar.
+    """
+
+    caminho: Path
+    faixa: Faixa
+    tamanho_bytes: int = 0
+    duracao_s: float | None = None
+    bitrate_kbps: int | None = None
+    taxa_amostragem_hz: int | None = None
+    profundidade_bits: int | None = None
+    #: "tags" ou "nome do arquivo" — de onde saiu artista/título. Vale mostrar na tela,
+    #: porque nome de arquivo erra e o usuário precisa poder corrigir antes de buscar.
+    origem_do_nome: str = ""
+    #: "acervo" (já era do usuário) ou "baixada de <usuário>". É o rótulo que identifica
+    #: cada gráfico na comparação lado a lado — sem ele o usuário não sabe qual é qual.
+    origem: str = ""
+
+    #: Frequência onde o áudio acaba, medida do próprio som. Preenchida pela análise.
+    corte_hz: int | None = None
+    #: True quando o que o arquivo diz ser não bate com o que ele é — o "MP3 320" que
+    #: corta em 16 kHz porque foi convertido de um 128.
+    suspeito: bool = False
+    #: Caminho do PNG do espectrograma, quando já gerado.
+    espectrograma: str = ""
+
+    @property
+    def formato(self) -> str:
+        """A extensão em minúsculas, sem o ponto."""
+        return self.caminho.suffix.lstrip(".").lower()
+
+
+@dataclass
+class Comparacao:
+    """Todas as versões da mesma música, para o usuário escolher olhando os gráficos.
+
+    Deliberadamente uma **lista**, não um par. O pedido foi explícito: pode haver mais de
+    duas na pasta e mais de duas baixadas — três rips do mesmo vinil e dois FLACs da rede
+    é caso comum. Um modelo de "antes e depois" quebraria justamente aí.
+    """
+
+    faixa: Faixa
+    versoes: list[ArquivoLocal] = field(default_factory=list)
+
+    @property
+    def do_acervo(self) -> list[ArquivoLocal]:
+        return [v for v in self.versoes if v.origem == "acervo"]
+
+    @property
+    def baixadas(self) -> list[ArquivoLocal]:
+        return [v for v in self.versoes if v.origem != "acervo"]
+
+    @property
+    def tem_o_que_comparar(self) -> bool:
+        """Só vale mostrar a comparação quando há mais de uma versão."""
+        return len(self.versoes) > 1
 
 
 @dataclass
