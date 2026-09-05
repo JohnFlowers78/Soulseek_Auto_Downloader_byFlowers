@@ -325,3 +325,55 @@ def varrer_pasta(pasta: Path, recursivo: bool = True) -> list[Path]:
 def ler_pasta(pasta: Path, recursivo: bool = True, executavel: str = "ffprobe") -> list[ArquivoLocal]:
     """Lê a pasta inteira: um `ArquivoLocal` por música encontrada."""
     return [ler_arquivo(caminho, executavel) for caminho in varrer_pasta(pasta, recursivo)]
+
+
+# ---------------------------------------------------------------------------
+
+
+_EXEMPLOS = [
+    "01 - Djavan - Não Vou Ficar.mp3",
+    "Céu_-_Malemolência.flac",
+    "[Label001] Bonobo - Kiara (Original Mix).wav",
+    "www.baixaki.com_Tim Maia - Você.mp3",
+    "50 Cent - In Da Club.mp3",
+    "311 - Down.mp3",
+    "A1. Daft Punk - One More Time.aiff",
+    "A1 - Caught in the Middle.mp3",
+    "Blink-182 - All the Small Things [320kbps].mp3",
+    "04 Titulo Sem Artista.mp3",
+]
+
+
+def _demonstracao(argumentos: list[str]) -> int:
+    if argumentos:
+        pasta = Path(argumentos[0])
+        arquivos = ler_pasta(pasta)
+        if not arquivos:
+            print(f"Nenhuma música encontrada em {pasta}")
+            return 1
+        print(f"📁 {pasta} — {len(arquivos)} música(s)\n")
+        for arquivo in arquivos:
+            ficha = arquivo.formato.upper()
+            if arquivo.bitrate_kbps:
+                ficha += f" {arquivo.bitrate_kbps} kbps"
+            if arquivo.profundidade_bits:
+                ficha += f" / {arquivo.profundidade_bits} bits"
+            if arquivo.taxa_amostragem_hz:
+                ficha += f" / {arquivo.taxa_amostragem_hz / 1000:g} kHz"
+            print(f"  {arquivo.caminho.name}")
+            print(f"    → {arquivo.faixa}  [{ficha}]  (nome veio de: {arquivo.origem_do_nome})")
+        return 0
+
+    print("Sem argumentos — mostrando como os nomes são interpretados.\n")
+    print('Uso: python src/leitor_pasta.py "D:\\Caminho\\Da\\Sua\\Pasta"\n')
+    for nome in _EXEMPLOS:
+        artista, titulo = extrair_do_nome(nome)
+        print(f"  {nome}")
+        print(f"    → artista={artista!r}  titulo={titulo!r}")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+
+    raise SystemExit(_demonstracao(sys.argv[1:]))
