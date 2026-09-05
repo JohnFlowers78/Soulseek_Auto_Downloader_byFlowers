@@ -36,10 +36,11 @@ _Atualizado em: 05/09/2026_
       com o motivo escrito para aparecer na tela.
 - [x] **`leitor_pasta.py`** — varrer uma pasta, ler tags e especificações pelo `ffprobe`,
       e tirar artista/título do nome do arquivo quando não houver tags.
-- [ ] **`config.py`** — configurações em JSON: pastas, credenciais, formatos aceitos,
-      limites. Sem segredo no código, arquivo fora do repositório.
-- [ ] **`sistema.py`** — o que muda entre Windows e macOS isolado num módulo só
-      (pasta de dados do app, caminho do ffmpeg). Desde já, para o porte não virar reescrita.
+- [x] **`config.py`** — configurações em JSON: pastas, credenciais, formatos aceitos,
+      limites. Sem segredo no código, arquivo fora do repositório. Com `problemas()`,
+      que devolve as pendências já escritas em português para a tela.
+- [x] **`sistema.py`** — o que muda entre Windows e macOS isolado num módulo só
+      (pasta de dados do app, procura do ffmpeg/ffprobe fora do PATH).
 
 ## 📥 Fase 2 — Ler a playlist
 
@@ -72,6 +73,10 @@ _Atualizado em: 05/09/2026_
 
 ## 🖥️ Fase 4 — A janela do PC (PySide/Qt)
 
+- [x] **Tela de Configurações** (`tela_configuracoes.py`) — pastas (destino e
+      compartilhada), ligação com o slskd + teste de conexão, formatos e limites, e o
+      painel de requisitos. Mostra as pendências em português. **É o que já dá para abrir.**
+- [x] **`app.py`** — ponto de entrada.
 - [ ] Campo do link + botão de ler playlist + lista das faixas para conferir antes.
 - [ ] Progresso ao vivo da busca e do download (com o "aguardando X s" do limitador).
 - [ ] **As três listas**: baixadas / presas na fila / não encontradas.

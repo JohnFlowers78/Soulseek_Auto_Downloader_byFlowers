@@ -1,3 +1,16 @@
+# --- interface ------------------------------------------------------------
+PySide6-Essentials>=6.7    # a janela do PC (Qt)
+#
+# ⚠️ Windows: esta instalação PRECISA de "caminho longo" habilitado. Sem isso o pip
+# falha no meio (num arquivo interno de QML) e deixa o pacote meio instalado — os
+# arquivos funcionam, mas o `pip list` não mostra PySide6. Para habilitar, uma vez,
+# num PowerShell COMO ADMINISTRADOR:
+#
+#   New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+#     -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force
+#
+# Depois reinstale:  pip install --force-reinstall PySide6-Essentials
+
 # --- núcleo ---------------------------------------------------------------
 requests>=2.32          # chamadas HTTP em geral
 
@@ -11,10 +24,9 @@ spotipy>=2.24           # cliente da Web API (fluxo OAuth Authorization Code)
 pytest>=8.0
 
 # --- a decidir (não instalar ainda) ---------------------------------------
-# A leitura de playlist de terceiro (via navegador) e a tela do app dependem de
-# escolhas que ainda estão em aberto no TODO.md. Ficam de fora até a decisão:
+# A leitura de playlist de terceiro (via navegador) e o painel do celular dependem
+# de escolhas que ainda estão em aberto no TODO.md. Ficam de fora até a decisão:
 #   playwright   -> ler o DOM da página do Spotify
-#   PySide6      -> se a tela for janela desktop
-#   flask        -> se a tela for página local no navegador
+#   flask        -> o painel web do celular
 #
 # O ffmpeg NÃO é pacote Python: é programa de sistema, instalado à parte.

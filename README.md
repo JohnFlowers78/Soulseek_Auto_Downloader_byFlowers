@@ -145,11 +145,27 @@ O núcleo que não depende de nada instalado já está de pé — **229 testes p
   tags pelo `ffprobe`, e artista/título tirados do nome quando não há tags.
 - Documentação completa do escopo (os 5 MDs acima).
 
-O resto está mapeado no [TODO.md](TODO.md), em fases, começando pelas que dão para testar sem
-depender de nada instalado.
+E a **primeira janela já abre**:
+
+- **`app.py` + `src/tela_configuracoes.py`** — a tela de Configurações: pasta de destino,
+  **pasta compartilhada**, ligação com o slskd (com teste de conexão), formatos aceitos,
+  limites da rede e o painel de requisitos da máquina.
+- **`src/config.py`** — as configurações em JSON, fora do repositório, com a lista de
+  pendências já escrita em português.
+- **`src/sistema.py`** — o que muda entre Windows e macOS, num módulo só.
+
+> ⚠️ **Ainda não dá para baixar música.** Falta o slskd instalado, o leitor de playlist e o
+> buscador. O que existe hoje é o núcleo de lógica testado e a tela de configuração.
+> O mapa completo está no [TODO.md](TODO.md).
+
+### Abrir o app
+
+```bash
+.\.venv\Scripts\python.exe app.py
+```
 
 ### Rodar os testes
 
 ```bash
-python -m pytest tests/ -v
+.\.venv\Scripts\python.exe -m pytest tests/ -q
 ```
