@@ -20,6 +20,7 @@ _Atualizado em: 05/09/2026_
 | **[FUNCIONALIDADES.md](FUNCIONALIDADES.md)** | Tudo que o app deve fazer — o escopo combinado, por módulo |
 | **[TODO.md](TODO.md)** | O que falta construir, em fases, com caixinhas para riscar |
 | **[ARQUITETURA.md](ARQUITETURA.md)** | As decisões estruturais e o custo de cada uma |
+| **[INSTALACAO.md](INSTALACAO.md)** | O passo a passo para deixar a máquina pronta |
 | **[IDEIAS.md](IDEIAS.md)** | Documento vivo: descobertas de operação e ideias futuras |
 | **[GUIA_SOULSEEK.md](GUIA_SOULSEEK.md)** | A parte dura: sintaxe de busca, limite de buscas, API do slskd |
 
