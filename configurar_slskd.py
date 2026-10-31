@@ -1,0 +1,143 @@
+"""Preenche o `slskd.yml` perguntando no terminal — sem abrir editor nenhum.
+
+Existe porque editar YAML na mão é atrito desnecessário e dá errado de formas chatas:
+caminho do Windows com espaço no nome do usuário se perde dependendo do terminal, e um
+recuo trocado no arquivo derruba o slskd sem explicar por quê.
+
+A senha é digitada **oculta** e nunca aparece na tela nem em log.
+
+    python configurar_slskd.py
+
+Mais tarde isto vira campo na tela de Configurações — este script é a ponte até lá, e
+continua útil para instalar numa máquina nova pelo terminal.
+"""
+
+from __future__ import annotations
+
+import getpass
+import shutil
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+import sistema  # noqa: E402
+
+MARCADORES = {
+    "usuario": "COLOQUE_AQUI_SEU_USUARIO_SOULSEEK",
+    "senha": "COLOQUE_AQUI_SUA_SENHA_SOULSEEK",
+    "pasta": "COLOQUE_AQUI_A_PASTA_QUE_VOCE_VAI_COMPARTILHAR",
+}
+
+EXTENSOES_MUSICA = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".ogg", ".wma"}
+
+
+def achar_config() -> Path | None:
+    caminho = sistema.pasta_de_dados_do_slskd() / "slskd.yml"
+    return caminho if caminho.is_file() else None
+
+
+def contar_musicas(pasta: Path, teto: int = 50) -> int:
+    """Conta até `teto` músicas. Para cedo: só interessa saber se há conteúdo."""
+    total = 0
+    try:
+        for caminho in pasta.rglob("*"):
+            if caminho.is_file() and caminho.suffix.lower() in EXTENSOES_MUSICA:
+                total += 1
+                if total >= teto:
+                    break
+    except OSError:
+        return total
+    return total
+
+
+def perguntar_pasta() -> str:
+    """Pede a pasta compartilhada e confere que ela serve de verdade."""
+    while True:
+        bruto = input("Pasta que você vai COMPARTILHAR na rede: ").strip().strip('"').strip("'")
+        if not bruto:
+            print("  → precisa de um caminho.\n")
+            continue
+
+        pasta = Path(bruto)
+        if not pasta.is_dir():
+            print(f"  → essa pasta não existe: {pasta}\n")
+            continue
+
+        quantas = contar_musicas(pasta)
+        if quantas == 0:
+            print(
+                "  ⚠ Não achei nenhuma música aí dentro. Compartilhar pasta vazia é o mesmo\n"
+                '    que não compartilhar: o Soulseek anuncia "Nothing Shared" e os outros\n'
+                "    usuários bloqueiam você automaticamente — os downloads param de completar."
+            )
+            if input("    Usar essa pasta assim mesmo? (s/N) ").strip().lower() != "s":
+                print()
+                continue
+        else:
+            quantas_txt = f"{quantas}+" if quantas >= 50 else str(quantas)
+            print(f"  ✓ {quantas_txt} música(s) encontrada(s) — serve.")
+
+        return str(pasta)
+
+
+def main() -> int:
+    config = achar_config()
+    if config is None:
+        print("Não achei o slskd.yml em:", sistema.pasta_de_dados_do_slskd())
+        print("O slskd foi instalado? Veja o INSTALACAO.md.")
+        return 1
+
+    texto = config.read_text(encoding="utf-8")
+    pendentes = [nome for nome, marca in MARCADORES.items() if marca in texto]
+
+    if not pendentes:
+        print("O slskd.yml já está preenchido — usuário, senha e pasta compartilhada.")
+        print(f"Arquivo: {config}")
+        if input("Quer preencher de novo? (s/N) ").strip().lower() != "s":
+            return 0
+        print("\nPara trocar valores já gravados, apague o slskd.yml e rode:")
+        print("  python configurar_slskd.py")
+        print("(ou edite o arquivo direto, se preferir)")
+        return 0
+
+    print(f"Preenchendo: {config}\n")
+
+    if "usuario" in pendentes:
+        usuario = ""
+        while not usuario:
+            usuario = input("Seu usuário do Soulseek: ").strip()
+        texto = texto.replace(MARCADORES["usuario"], usuario)
+
+    if "senha" in pendentes:
+        senha = ""
+        while not senha:
+            # getpass não ecoa a senha — nem na tela, nem no histórico do terminal.
+            senha = getpass.getpass("Sua senha do Soulseek (não aparece): ").strip()
+        texto = texto.replace(MARCADORES["senha"], senha)
+
+    if "pasta" in pendentes:
+        texto = texto.replace(MARCADORES["pasta"], perguntar_pasta())
+
+    reserva = config.with_suffix(".yml.anterior")
+    shutil.copy2(config, reserva)
+    config.write_text(texto, encoding="utf-8")
+
+    print()
+    print("✓ Gravado.")
+    print(f"  arquivo .......: {config}")
+    print(f"  cópia anterior : {reserva}")
+    print()
+    print("Agora ligue o motor e deixe a janela aberta:")
+    print(f'  "{sistema.encontrar_slskd() or "slskd.exe"}"')
+    print()
+    print("A interface web dele fica em http://localhost:5030 (login slskd / senha slskd).")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\nCancelado — nada foi gravado.")
+        raise SystemExit(130)
