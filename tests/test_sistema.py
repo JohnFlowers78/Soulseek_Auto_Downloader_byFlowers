@@ -47,3 +47,30 @@ def test_procurar_ffmpeg_nao_estoura_mesmo_sem_ffmpeg():
     # Pode devolver None nesta máquina — o que não pode é levantar exceção.
     resultado = sistema.encontrar_ffmpeg()
     assert resultado is None or resultado.is_file()
+
+
+def test_procurar_slskd_nao_estoura_mesmo_sem_slskd():
+    resultado = sistema.encontrar_slskd()
+    assert resultado is None or resultado.is_file()
+
+
+def test_procura_fora_do_path_acha_o_que_esta_no_disco(tmp_path):
+    # O caso que motivou a busca em disco: o programa existe, mas o PATH deste processo
+    # é antigo e não o enxerga. Acontece sempre depois do botão "instalar dependência".
+    falso = tmp_path / "bin"
+    falso.mkdir()
+    alvo = falso / ("coisa.exe" if sistema.eh_windows() else "coisa")
+    alvo.write_bytes(b"\0")
+
+    assert sistema.encontrar_programa("coisa", (falso,)) == alvo
+
+
+def test_procura_fora_do_path_devolve_nada_quando_nao_ha(tmp_path):
+    assert sistema.encontrar_programa("coisa", (tmp_path,)) is None
+
+
+def test_a_pasta_do_slskd_e_a_mesma_que_ele_usa_por_padrao():
+    # Precisamos achar o slskd.yml para conferir se as credenciais já foram preenchidas.
+    pasta = sistema.pasta_de_dados_do_slskd()
+    assert pasta.name == "slskd"
+    assert pasta.is_absolute()

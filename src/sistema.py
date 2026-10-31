@@ -52,7 +52,14 @@ def pasta_de_musicas_padrao() -> Path:
 
 
 #: Lugares onde o ffmpeg costuma se instalar no Windows sem entrar no PATH.
+#:
+#: O primeiro é onde o **nosso próprio botão de instalar dependências** coloca o ffmpeg:
+#: na casa do usuário, que não exige administrador. Procurar ali primeiro é o que faz a
+#: detecção funcionar **sem depender do PATH** — e isso importa mais do que parece, porque
+#: alterar o PATH só vale para processos abertos DEPOIS da alteração. Um app que acabou de
+#: instalar a dependência e ainda está rodando não veria o PATH novo.
 _LUGARES_PROVAVEIS = (
+    Path.home() / "ffmpeg" / "bin",
     Path(r"C:\ffmpeg\bin"),
     Path(r"C:\Program Files\ffmpeg\bin"),
     Path(r"C:\ProgramData\chocolatey\bin"),
@@ -61,20 +68,36 @@ _LUGARES_PROVAVEIS = (
     Path("/usr/local/bin"),
 )
 
+#: Onde o slskd costuma ficar. Mesma lógica: a casa do usuário vem primeiro porque é lá
+#: que o nosso instalador o coloca, sem precisar de administrador.
+_LUGARES_DO_SLSKD = (
+    Path.home() / "slskd",
+    Path(r"C:\slskd"),
+    Path(r"C:\Program Files\slskd"),
+    Path("/usr/local/bin"),
+)
 
-def encontrar_programa(nome: str) -> Path | None:
+
+def encontrar_programa(
+    nome: str, lugares: tuple[Path, ...] | None = None
+) -> Path | None:
     """Procura um programa no PATH e, se não achar, nos lugares onde ele costuma estar.
 
     A segunda parte existe porque instalar o ffmpeg no Windows e **esquecer de colocar no
     PATH** é o desfecho mais comum — e é frustrante o app dizer "não instalado" quando o
     programa está ali, dois diretórios ao lado.
+
+    Tem um segundo motivo, menos óbvio e que já mordeu: **mexer no PATH só vale para
+    processos abertos depois da mudança**. O próprio app, que acabou de instalar a
+    dependência pelo botão das Configurações, continuaria dizendo "não encontrado" até ser
+    reiniciado. Procurar no disco resolve isso na hora.
     """
     achado = shutil.which(nome)
     if achado:
         return Path(achado)
 
     sufixos = (".exe", ".bat", "") if eh_windows() else ("",)
-    for pasta in _LUGARES_PROVAVEIS:
+    for pasta in lugares or _LUGARES_PROVAVEIS:
         for sufixo in sufixos:
             candidato = pasta / f"{nome}{sufixo}"
             try:
@@ -91,3 +114,21 @@ def encontrar_ffmpeg() -> Path | None:
 
 def encontrar_ffprobe() -> Path | None:
     return encontrar_programa("ffprobe")
+
+
+def encontrar_slskd() -> Path | None:
+    """Acha o executável do slskd — o motor de busca e download."""
+    return encontrar_programa("slskd", _LUGARES_DO_SLSKD)
+
+
+def pasta_de_dados_do_slskd() -> Path:
+    """Onde o slskd guarda o `slskd.yml`, o banco e os downloads de passagem.
+
+    É o padrão do próprio slskd (``--app-dir``), repetido aqui porque o nosso app precisa
+    achar o `slskd.yml` para conferir se as credenciais e a pasta compartilhada já foram
+    preenchidas.
+    """
+    if eh_windows():
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "slskd"
+    return Path.home() / ".local" / "share" / "slskd"
