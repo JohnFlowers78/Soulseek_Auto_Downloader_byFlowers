@@ -25,7 +25,9 @@ Por isso os dois recebem tratamentos diferentes no `normalizador.py`: acento vir
 34 buscas a cada 220 segundos. Estourou, o servidor bane por 30 minutos. Isso não é um
 detalhe de implementação — é o que define a experiência:
 
-> 100 faixas × 3 variantes = 300 buscas = **~33 minutos no melhor caso**.
+> 100 faixas × 3 variantes = 300 buscas = **~29 minutos só de espera** (as 34
+> primeiras saem na hora; as 266 restantes custam 8 janelas de 220 s). O tempo
+> de cada busca na rede entra por cima.
 
 Daí três decisões que já nascem tomadas: a busca **para na primeira variante que der certo**
 (cada variante extra é cota queimada), a fila é **persistente** (ninguém vai ficar meia hora

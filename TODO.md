@@ -59,12 +59,13 @@ _Atualizado em: 05/09/2026_
 ## 🔎 Fase 3 — Buscar e baixar
 
 - [ ] **`motores/protocolo.py`** — a interface única que os dois motores implementam.
-- [ ] **`motores/motor_slskd.py`** — buscar, ler respostas, enfileirar, acompanhar, cancelar.
+- [x] **`slskd_cliente.py`** — buscar, ler respostas, enfileirar, acompanhar, cancelar.
+      Escrito contra o formato REAL da API, medido com buscas de verdade na rede.
 - [ ] **`motores/motor_soulseekqt.py`** — a contingência por automação de tela.
       **Você vai me ensinar as telas** (onde busca, onde vê resultado, onde vê download).
 - [ ] **Detectar a briga de sessão** entre os dois motores e avisar com clareza.
-- [ ] **Limitador de buscas** — 34 buscas / 220 s, com espera visível. **Crítico:**
-      estourar = 30 min de banimento.
+- [x] **Limitador de buscas** (`limitador.py`) — 34 buscas / 220 s, com relógio
+      injetável para testar sem esperar. Sabe estimar o tempo total antes de começar.
 - [ ] **`buscador.py`** — roda as variantes na ordem, para no primeiro resultado bom.
 - [ ] **`baixador.py`** — enfileira, acompanha, classifica em ✅ baixou / ⏳ preso na fila /
       ❌ não achou.

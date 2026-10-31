@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 import sistema
-from config import Config
+from config import DIAS_ATE_REVALIDAR_COMPARTILHADA, Config
 
 FORMATOS_SEM_PERDA = [("flac", "FLAC"), ("wav", "WAV"), ("aiff", "AIFF"), ("aif", "AIF")]
 FORMATOS_COM_PERDA = [("mp3", "MP3"), ("m4a", "M4A"), ("aac", "AAC")]
@@ -122,6 +122,7 @@ class TelaConfiguracoes(QWidget):
         abas = QTabWidget()
         abas.addTab(self._aba_pastas(), "📁 Pastas")
         abas.addTab(self._aba_motor(), "🔌 Soulseek")
+        abas.addTab(self._aba_spotify(), "🎧 Spotify")
         abas.addTab(self._aba_qualidade(), "⭐ Qualidade")
         abas.addTab(self._aba_requisitos(), "✅ Requisitos")
 
@@ -158,15 +159,28 @@ class TelaConfiguracoes(QWidget):
         aba = QWidget()
         corpo = QVBoxLayout(aba)
 
-        corpo.addWidget(_titulo("Onde as músicas baixadas vão ficar"))
+        corpo.addWidget(_titulo("Playlists baixadas do Spotify"))
         corpo.addWidget(
             _explicacao(
-                "Cada playlist vira uma subpasta com o nome dela dentro deste caminho. "
+                "Cada playlist vira uma <b>subpasta</b> com o nome dela dentro deste caminho. "
                 "Os arquivos ficam sempre nesta máquina — é daqui que eles saem para o pendrive."
             )
         )
-        self.destino = SeletorDePasta("Escolha a pasta de destino das músicas")
-        corpo.addWidget(self.destino)
+        self.mae_playlists = SeletorDePasta("Escolha a pasta das playlists")
+        corpo.addWidget(self.mae_playlists)
+
+        corpo.addSpacing(14)
+
+        corpo.addWidget(_titulo("Acervo — buscar versão melhor do que você já tem"))
+        corpo.addWidget(
+            _explicacao(
+                "Quando você aponta uma pasta de músicas suas para o app procurar versões "
+                "melhores, o resultado vem para cá — <b>separado</b> das playlists, para não "
+                "misturar o que é novo com o que é substituição."
+            )
+        )
+        self.mae_acervo = SeletorDePasta("Escolha a pasta do acervo")
+        corpo.addWidget(self.mae_acervo)
 
         corpo.addSpacing(18)
 
@@ -179,18 +193,104 @@ class TelaConfiguracoes(QWidget):
                 "Enquanto seu cliente anunciar <i>“Nothing Shared”</i>, muitos usuários bloqueiam "
                 "você automaticamente, e aí os downloads simplesmente param de completar. "
                 "Não é etiqueta: é requisito de funcionamento.<br><br>"
-                "Aponte uma pasta com músicas de verdade que você já tem. Não precisa ser o "
-                "acervo inteiro — precisa não estar vazia.<br><br>"
-                "Este caminho também precisa estar configurado no <b>slskd</b> "
+                "Este caminho também precisa estar no <b>slskd</b> "
                 "(<code>shares.directories</code> no <code>slskd.yml</code>)."
             )
         )
         self.compartilhada = SeletorDePasta("Escolha a pasta que você vai compartilhar")
         interno.addWidget(self.compartilhada)
+
+        # A reconfirmação periódica: pasta de compartilhamento é a coisa que apodrece em
+        # silêncio. O usuário move o acervo, esvazia a pasta, troca de HD — e nada reclama
+        # até os downloads pararem semanas depois, sem erro nenhum.
+        self.rotulo_confirmacao = QLabel("")
+        self.rotulo_confirmacao.setWordWrap(True)
+        botao_confirmar = QPushButton("Confirmar que está tudo certo")
+        botao_confirmar.setToolTip(
+            f"Pedido a cada {DIAS_ATE_REVALIDAR_COMPARTILHADA} dias de uso"
+        )
+        botao_confirmar.clicked.connect(self._confirmar_compartilhada)
+
+        linha = QHBoxLayout()
+        linha.addWidget(self.rotulo_confirmacao, 1)
+        linha.addWidget(botao_confirmar)
+        interno.addLayout(linha)
+
         corpo.addWidget(grupo)
+        corpo.addStretch(1)
+        return aba
+
+    def _aba_spotify(self) -> QWidget:
+        aba = QWidget()
+        corpo = QVBoxLayout(aba)
+
+        corpo.addWidget(_titulo("Sua conta do Spotify"))
+        corpo.addWidget(
+            _explicacao(
+                "Crie um app em <b>developer.spotify.com/dashboard</b> e cole aqui. O "
+                "<b>Redirect URI</b> do app precisa ser exatamente "
+                "<code>http://127.0.0.1:8888/callback</code> — com <code>127.0.0.1</code>, "
+                "não <code>localhost</code>, que o Spotify recusa.<br><br>"
+                "Desde fevereiro de 2026 a API só entrega o <b>conteúdo</b> das playlists "
+                "<b>do próprio usuário logado</b>. Playlist de terceiro é lida pelo navegador, "
+                "e para isso você marca a opção na tela principal."
+            )
+        )
+
+        formulario = QFormLayout()
+        self.spotify_id = QLineEdit()
+        self.spotify_id.setPlaceholderText("Client ID (é público, pode ficar visível)")
+        self.spotify_secret = QLineEdit()
+        self.spotify_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self.spotify_secret.setPlaceholderText("Client Secret (este é segredo)")
+        formulario.addRow("Client ID:", self.spotify_id)
+        formulario.addRow("Client Secret:", self.spotify_secret)
+        corpo.addLayout(formulario)
 
         corpo.addStretch(1)
         return aba
+
+    def _impedimento_para_confirmar(self) -> str:
+        """Motivo de não dar para confirmar a pasta, ou `""` se dá.
+
+        Separado do clique **de propósito**: diálogo modal trava esperando clique, e
+        função que decide e exibe diálogo ao mesmo tempo não se testa — o teste fica
+        pendurado para sempre no `QMessageBox`. A decisão fica aqui, pura; o aviso fica
+        no handler.
+        """
+        pasta = self.compartilhada.valor()
+        if not pasta:
+            return "Escolha uma pasta antes de confirmar."
+        if not Path(pasta).is_dir():
+            return (
+                f"Essa pasta não existe:\n{pasta}\n\n"
+                "Confirmar uma pasta que não existe seria pior que não perguntar nada — "
+                "você ficaria achando que está compartilhando."
+            )
+        return ""
+
+    def _confirmar_compartilhada(self) -> bool:
+        impedimento = self._impedimento_para_confirmar()
+        if impedimento:
+            QMessageBox.warning(self, "Confira a pasta antes", impedimento)
+            return False
+
+        self.config.confirmar_compartilhada()
+        self._atualizar_confirmacao()
+        self._mostrar_pendencias()
+        return True
+
+    def _atualizar_confirmacao(self) -> None:
+        dias = self.config.dias_desde_confirmacao()
+        if dias is None:
+            texto = "⬜ Nunca confirmada."
+        elif self.config.precisa_revalidar_compartilhada():
+            texto = f"⚠️ Confirmada há {dias} dias — passou do prazo."
+        elif dias == 0:
+            texto = "✅ Confirmada hoje."
+        else:
+            texto = f"✅ Confirmada há {dias} dia(s)."
+        self.rotulo_confirmacao.setText(texto)
 
     def _aba_motor(self) -> QWidget:
         aba = QWidget()
@@ -383,8 +483,13 @@ class TelaConfiguracoes(QWidget):
 
     def _carregar_na_tela(self) -> None:
         c = self.config
-        self.destino.definir(c.pasta_destino or str(sistema.pasta_de_musicas_padrao()))
+        padrao = sistema.pasta_de_musicas_padrao()
+        self.mae_playlists.definir(c.pasta_mae_playlists or str(padrao / "Playlists"))
+        self.mae_acervo.definir(c.pasta_mae_acervo or str(padrao / "Acervo"))
         self.compartilhada.definir(c.pasta_compartilhada)
+        self._atualizar_confirmacao()
+        self.spotify_id.setText(c.spotify_client_id)
+        self.spotify_secret.setText(c.spotify_client_secret)
         self.slskd_url.setText(c.slskd_url)
         self.slskd_chave.setText(c.slskd_api_key)
         for chave, caixa in self.caixas_formato.items():
@@ -397,8 +502,11 @@ class TelaConfiguracoes(QWidget):
 
     def _recolher_da_tela(self) -> Config:
         c = self.config
-        c.pasta_destino = self.destino.valor()
+        c.pasta_mae_playlists = self.mae_playlists.valor()
+        c.pasta_mae_acervo = self.mae_acervo.valor()
         c.pasta_compartilhada = self.compartilhada.valor()
+        c.spotify_client_id = self.spotify_id.text().strip()
+        c.spotify_client_secret = self.spotify_secret.text().strip()
         c.slskd_url = self.slskd_url.text().strip()
         c.slskd_api_key = self.slskd_chave.text().strip()
         c.formatos_aceitos = [k for k, caixa in self.caixas_formato.items() if caixa.isChecked()]

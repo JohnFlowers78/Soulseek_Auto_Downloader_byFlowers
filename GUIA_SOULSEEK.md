@@ -62,7 +62,8 @@ O número de referência, usado pelas ferramentas consolidadas da comunidade, é
 Isso não é detalhe de implementação, é o que dita o ritmo do app:
 
 > Uma playlist de **100 faixas** × até **3 variantes** cada = **300 buscas** =
-> **no mínimo ~33 minutos**, mesmo que tudo dê certo.
+> **no mínimo ~29 minutos só de espera** — e o tempo de cada busca na rede
+> (o `searchTimeout` padrão do slskd é 15 s) entra por cima disso.
 
 Consequências no desenho:
 
