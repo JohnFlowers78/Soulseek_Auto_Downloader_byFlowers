@@ -40,8 +40,20 @@ _Atualizado em: 31/10/2026_
 > Ele até observa o arquivo e recarrega sozinho depois — mas isso só vale para um processo
 > que conseguiu subir.
 
-O arquivo já está gerado em `%LOCALAPPDATA%\slskd\slskd.yml` com tudo pronto. Faltam três
-valores. **Não edite o YAML na mão** — rode:
+O arquivo já está gerado em **`C:\Users\<você>\slskd\dados\slskd.yml`** — ao lado do
+executável, e **não** no `%LOCALAPPDATA%\slskd` que é o padrão do slskd.
+
+> **Por que fora do padrão:** nesta máquina, o que foi escrito em `%LOCALAPPDATA%\slskd`
+> não ficou visível para o terminal do usuário — mesma máquina, mesmo usuário, mesmo
+> `LOCALAPPDATA` impresso, e ainda assim a pasta "não existia" para ele, enquanto
+> `C:\Users\<você>\slskd\` (criada no mesmo minuto) aparecia normalmente. A causa não foi
+> identificada. Guardar a configuração junto do executável põe tudo num lugar que os dois
+> lados enxergam, e o slskd suporta isso oficialmente com `--app-dir`.
+>
+> Ficou um `MARCADOR_DE_DIAGNOSTICO.txt` na pasta antiga, para o caso ser investigado
+> depois sem travar o trabalho agora.
+
+Faltam três valores. **Não edite o YAML na mão** — rode:
 
 ```
 cd "C:\Users\Flores Dev Projects\Documents\Claude_Projects\Soulseek_Auto_Downloader_byFlowers"
@@ -65,11 +77,15 @@ Guarda cópia do anterior em `slskd.yml.anterior`. Aceita o caminho com ou sem a
 
 ### Ligar o slskd
 
-**No PowerShell** — repare no `&` na frente:
+**No PowerShell** — repare no `&` na frente e no `--app-dir`:
 
 ```
-& "C:\Users\Flores Dev Projects\slskd\slskd.exe"
+& "C:\Users\Flores Dev Projects\slskd\slskd.exe" --app-dir "C:\Users\Flores Dev Projects\slskd\dados"
 ```
+
+> O `--app-dir` aponta o slskd para a mesma pasta onde a configuração foi gravada. Sem ele,
+> o slskd procura no padrão (`%LOCALAPPDATA%\slskd`) e não acha nada. O próprio
+> `configurar_slskd.py` imprime este comando pronto no fim.
 
 > ⚠️ Sem o `&`, o PowerShell trata a string entre aspas como **texto** e só ecoa o caminho
 > de volta, sem executar nada e sem dar erro. É o engano que mais parece "não aconteceu

@@ -34,14 +34,34 @@ MARCADORES = {
 EXTENSOES_MUSICA = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".ogg", ".wma"}
 
 
+def locais_possiveis() -> list[Path]:
+    """Onde o `slskd.yml` pode estar, do mais provável para o menos.
+
+    A pasta ``dados/`` ao lado do executável vem **primeiro** de propósito. O padrão do
+    slskd é ``%LOCALAPPDATA%\\slskd``, mas nesta máquina o que foi escrito ali não ficou
+    visível para o terminal do usuário — mesma máquina, mesmo usuário, mesmo
+    ``LOCALAPPDATA``, e ainda assim a pasta "não existia" para ele. Guardar junto do
+    executável põe a configuração num lugar que os dois lados enxergam, e o slskd suporta
+    isso oficialmente via ``--app-dir``.
+    """
+    locais = []
+    executavel = sistema.encontrar_slskd()
+    if executavel:
+        locais.append(executavel.parent / "dados" / "slskd.yml")
+    locais.append(sistema.pasta_de_dados_do_slskd() / "slskd.yml")
+    return locais
+
+
 def achar_config() -> Path | None:
     """Acha o `slskd.yml`. Aceita `--config <caminho>` para apontar um lugar diferente."""
     if "--config" in sys.argv:
         indicado = Path(sys.argv[sys.argv.index("--config") + 1])
         return indicado if indicado.is_file() else None
 
-    caminho = sistema.pasta_de_dados_do_slskd() / "slskd.yml"
-    return caminho if caminho.is_file() else None
+    for caminho in locais_possiveis():
+        if caminho.is_file():
+            return caminho
+    return None
 
 
 def explicar_por_que_nao_achou() -> None:
@@ -52,10 +72,15 @@ def explicar_por_que_nao_achou() -> None:
     consigo ler" — ele engole o erro de permissão. Sem estes números, a conversa vira
     adivinhação.
     """
+    print("Não achei o slskd.yml.\n")
+    print("Procurei em:")
+    for caminho in locais_possiveis():
+        print(f"  {'✓' if caminho.is_file() else '✗'} {caminho}")
+    print()
+
     pasta = sistema.pasta_de_dados_do_slskd()
     alvo = pasta / "slskd.yml"
 
-    print("Não achei o slskd.yml.\n")
     print("O que o Python está vendo daqui:")
     # O nome da máquina é o primeiro dado a conferir quando "o arquivo está lá mas o
     # programa não acha": duas máquinas com o mesmo nome de usuário produzem caminhos
@@ -184,11 +209,15 @@ def main() -> int:
     # O "&" não é enfeite: no PowerShell uma string entre aspas sozinha é só um texto,
     # que ele ecoa de volta sem executar nada. É o erro que mais parece "não aconteceu
     # nada" sem dar mensagem alguma.
+    executavel = sistema.encontrar_slskd() or Path("slskd.exe")
+    # --app-dir aponta o slskd para a MESMA pasta onde este script gravou o config.
+    # Sem ele, o slskd usaria o padrão (%LOCALAPPDATA%\slskd) e não acharia nada.
+    app_dir = config.parent
     print("  No PowerShell (repare no & na frente — sem ele o PowerShell só imprime o texto):")
-    print(f'    & "{sistema.encontrar_slskd() or "slskd.exe"}"')
+    print(f'    & "{executavel}" --app-dir "{app_dir}"')
     print()
     print("  No cmd ou no Git Bash:")
-    print(f'    "{sistema.encontrar_slskd() or "slskd.exe"}"')
+    print(f'    "{executavel}" --app-dir "{app_dir}"')
     print()
     print("A interface web dele fica em http://localhost:5030 (login slskd / senha slskd).")
     return 0
