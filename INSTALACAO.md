@@ -126,12 +126,31 @@ loop.
 O app vai ter **botões de instalar dependências** nas próprias Configurações, para não
 precisar repetir isto na mão. Até eles existirem, o caminho é:
 
-1. `ffmpeg`: baixar a build *essentials* de https://www.gyan.dev/ffmpeg/builds/ (indicada
-   pelo ffmpeg.org), extrair em `%USERPROFILE%\ffmpeg` e somar `...\ffmpeg\bin` ao PATH
-   do usuário.
+1. **`ffmpeg` — pelo winget, que é uma linha** e já resolve o PATH:
+   ```
+   winget install Gyan.FFmpeg --accept-package-agreements --accept-source-agreements
+   ```
+   `Gyan.FFmpeg` é **a mesma build** *essentials* que foi instalada à mão nesta máquina
+   (9.0.2, de gyan.dev — a que o ffmpeg.org indica para Windows). É o caminho que o botão
+   de instalar dependência (C1) vai usar.
+
+   Sem winget: baixar de https://www.gyan.dev/ffmpeg/builds/, extrair em
+   `%USERPROFILE%\ffmpeg` e somar `...\ffmpeg\bin` ao PATH do usuário.
+
+   > ⚠️ O `winget search` pode travar por minutos tentando atualizar a origem antes de
+   > responder. Com `--accept-source-agreements` e `install` direto ele não faz essa volta.
 2. `slskd`: baixar `slskd-<versão>-win-x64.zip` de
    https://github.com/slskd/slskd/releases, extrair em `%USERPROFILE%\slskd`.
+   **Não tem pacote winget** — por isso o botão do C1 vai baixar o zip da API de releases
+   do GitHub.
 3. Repetir os itens 1 a 3 acima.
+
+> **Por que o app procura as dependências no disco, e não só no PATH:** mexer no PATH só
+> vale para processos abertos **depois** da mudança. O app que acabou de instalar o ffmpeg
+> pelo botão continuaria dizendo "não encontrado" até ser reiniciado. Por isso
+> `sistema.encontrar_programa()` procura também em `%USERPROFILE%\ffmpeg\bin` e nos outros
+> lugares prováveis — e é lá que o nosso instalador coloca as coisas, sem precisar de
+> administrador.
 
 > **Windows: habilite caminho longo antes de instalar o PySide6.** Sem isso o `pip` falha no
 > meio e deixa o pacote meio instalado (funciona, mas o `pip list` não o mostra — e aí o
