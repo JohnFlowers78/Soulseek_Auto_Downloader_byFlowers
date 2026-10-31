@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import platform
 import shutil
 import sys
 from pathlib import Path
@@ -56,7 +57,14 @@ def explicar_por_que_nao_achou() -> None:
 
     print("Não achei o slskd.yml.\n")
     print("O que o Python está vendo daqui:")
+    # O nome da máquina é o primeiro dado a conferir quando "o arquivo está lá mas o
+    # programa não acha": duas máquinas com o mesmo nome de usuário produzem caminhos
+    # idênticos em telas diferentes, e aí a conversa inteira fica sem chão.
+    print(f"  máquina .........: {platform.node()}")
+    print(f"  usuário .........: {os.environ.get('USERNAME', '?')}")
     print(f"  LOCALAPPDATA ....: {os.environ.get('LOCALAPPDATA', '(não definido)')}")
+    slskd_exe = sistema.encontrar_slskd()
+    print(f"  slskd.exe .......: {slskd_exe or 'NÃO ENCONTRADO'}")
     print(f"  pasta procurada .: {pasta}")
     print(f"    existe? ........ {pasta.exists()}")
     print(f"  arquivo procurado: {alvo}")
