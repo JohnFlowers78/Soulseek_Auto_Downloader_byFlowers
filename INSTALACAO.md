@@ -20,8 +20,9 @@ _Atualizado em: 31/10/2026_
 | **slskd** | ✅ 0.26.2 | `C:\Users\Flores Dev Projects\slskd` |
 | `slskd.yml` gerado | ✅ | `%LOCALAPPDATA%\slskd\slskd.yml` |
 | Chave de API ligando app ↔ slskd | ✅ | gerada e gravada nos dois lados |
-| Credenciais do Soulseek | ⬜ **[VOCÊ]** | item 1 abaixo |
-| Pasta compartilhada | ⬜ **[VOCÊ]** | item 1 abaixo |
+| Credenciais do Soulseek | ✅ | `joaoflores` — **login confirmado na rede** |
+| Pasta compartilhada | ✅ | 39 arquivos sendo compartilhados |
+| API do slskd ↔ nosso app | ✅ | `Connected, LoggedIn` em `http://localhost:5030` |
 | App no Spotify Dashboard | ⬜ **[VOCÊ]** | item 2 abaixo |
 | As três pastas do app | ⬜ **[VOCÊ]** | item 3 abaixo |
 | Segunda conta Soulseek | ⬜ **[VOCÊ]** | item 4 — pode esperar |
@@ -94,6 +95,19 @@ Guarda cópia do anterior em `slskd.yml.anterior`. Aceita o caminho com ou sem a
 Deixe essa janela aberta — é o motor rodando. A interface web dele fica em
 **http://localhost:5030** (login `slskd` / senha `slskd`, só aceita acesso da própria
 máquina).
+
+> ⏳ **A primeira execução demora muito mais que as seguintes.** Ele monta o cache de
+> compartilhamento varrendo a pasta inteira antes de abrir a porta — com acervo grande
+> isso passa de um minuto, e parece travado. Da segunda vez em diante ele carrega o cache
+> do disco e sobe em ~2 segundos. Não mate o processo achando que empacou.
+
+Sinais de que deu certo, no log:
+
+```
+[..] Share cache loaded from disk successfully. Sharing N directories and N files
+[..] Connected to the Soulseek server
+[..] Logged in to the Soulseek server as <seu usuário>
+```
 
 Dá para conferir se conectou pela própria interface web, ou pelo botão **Testar conexão**
 na aba 🔌 Soulseek das nossas Configurações.
