@@ -28,35 +28,52 @@ _Atualizado em: 31/10/2026_
 
 ---
 
-## 1. [VOCÊ] Preencher o `slskd.yml` — três campos
+## 1. [VOCÊ] Preencher as credenciais — pelo script, não na mão
 
-O arquivo já está gerado com tudo pronto. Faltam **três** valores, cada um marcado com
-`COLOQUE_AQUI`. Abra:
+> ⚠️ **Preencher vem ANTES de ligar.** O slskd **valida o config e morre** se encontrar os
+> marcadores:
+> ```
+> Invalid configuration:
+>   Shares:
+>     Share COLOQUE_AQUI_... contains a relative path; only absolute paths are supported.
+> ```
+> Ele até observa o arquivo e recarrega sozinho depois — mas isso só vale para um processo
+> que conseguiu subir.
+
+O arquivo já está gerado em `%LOCALAPPDATA%\slskd\slskd.yml` com tudo pronto. Faltam três
+valores. **Não edite o YAML na mão** — rode:
 
 ```
-notepad "C:\Users\Flores Dev Projects\AppData\Local\slskd\slskd.yml"
+cd "C:\Users\Flores Dev Projects\Documents\Claude_Projects\Soulseek_Auto_Downloader_byFlowers"
+.\.venv\Scripts\python.exe configurar_slskd.py
 ```
 
-Troque:
+Ele pergunta no terminal:
 
-| Marcador | Pelo quê |
+| | O que ele faz de diferente |
 |---|---|
-| `COLOQUE_AQUI_SEU_USUARIO_SOULSEEK` | seu usuário do Soulseek |
-| `COLOQUE_AQUI_SUA_SENHA_SOULSEEK` | sua senha do Soulseek |
-| `COLOQUE_AQUI_A_PASTA_QUE_VOCE_VAI_COMPARTILHAR` | o caminho da pasta que você vai compartilhar |
+| **usuário** do Soulseek | — |
+| **senha** do Soulseek | digitada **oculta** (`getpass`): não aparece na tela nem no histórico |
+| **pasta compartilhada** | **confere se tem música dentro** antes de aceitar |
+
+Guarda cópia do anterior em `slskd.yml.anterior`. Aceita o caminho com ou sem aspas.
 
 > **Sobre a pasta compartilhada:** não precisa ser o acervo inteiro — precisa **não estar
 > vazia**. Enquanto o cliente anunciar *"Nothing Shared"*, outros usuários bloqueiam você
 > automaticamente e os downloads param de completar. Não é etiqueta, é requisito de
-> funcionamento. Caminho do Windows com barra invertida funciona normalmente aqui.
-
-Salve e feche. O slskd **observa o arquivo** e recarrega sozinho.
+> funcionamento.
 
 ### Ligar o slskd
 
+**No PowerShell** — repare no `&` na frente:
+
 ```
-"C:\Users\Flores Dev Projects\slskd\slskd.exe"
+& "C:\Users\Flores Dev Projects\slskd\slskd.exe"
 ```
+
+> ⚠️ Sem o `&`, o PowerShell trata a string entre aspas como **texto** e só ecoa o caminho
+> de volta, sem executar nada e sem dar erro. É o engano que mais parece "não aconteceu
+> nada". No `cmd` e no Git Bash as aspas sozinhas funcionam.
 
 Deixe essa janela aberta — é o motor rodando. A interface web dele fica em
 **http://localhost:5030** (login `slskd` / senha `slskd`, só aceita acesso da própria

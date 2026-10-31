@@ -15,6 +15,7 @@ continua útil para instalar numa máquina nova pelo terminal.
 from __future__ import annotations
 
 import getpass
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -33,8 +34,51 @@ EXTENSOES_MUSICA = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".
 
 
 def achar_config() -> Path | None:
+    """Acha o `slskd.yml`. Aceita `--config <caminho>` para apontar um lugar diferente."""
+    if "--config" in sys.argv:
+        indicado = Path(sys.argv[sys.argv.index("--config") + 1])
+        return indicado if indicado.is_file() else None
+
     caminho = sistema.pasta_de_dados_do_slskd() / "slskd.yml"
     return caminho if caminho.is_file() else None
+
+
+def explicar_por_que_nao_achou() -> None:
+    """Mostra o que o Python está realmente vendo no disco.
+
+    Existe porque "não achei o arquivo" é um beco sem saída quando o arquivo está lá:
+    `Path.is_file()` devolve False tanto para "não existe" quanto para "existe mas não
+    consigo ler" — ele engole o erro de permissão. Sem estes números, a conversa vira
+    adivinhação.
+    """
+    pasta = sistema.pasta_de_dados_do_slskd()
+    alvo = pasta / "slskd.yml"
+
+    print("Não achei o slskd.yml.\n")
+    print("O que o Python está vendo daqui:")
+    print(f"  LOCALAPPDATA ....: {os.environ.get('LOCALAPPDATA', '(não definido)')}")
+    print(f"  pasta procurada .: {pasta}")
+    print(f"    existe? ........ {pasta.exists()}")
+    print(f"  arquivo procurado: {alvo}")
+    print(f"    existe? ........ {alvo.exists()}")
+    print(f"    é arquivo? ..... {alvo.is_file()}")
+
+    if pasta.is_dir():
+        try:
+            dentro = sorted(p.name for p in pasta.iterdir())
+            print(f"  o que há na pasta: {dentro or '(vazia)'}")
+        except OSError as erro:
+            print(f"  não consegui listar a pasta: {erro}")
+
+    print()
+    if alvo.exists() and not alvo.is_file():
+        print("O caminho existe mas não é um arquivo comum — confira se não virou pasta.")
+    elif not pasta.exists():
+        print("A pasta nem existe. O slskd foi instalado? Veja o INSTALACAO.md.")
+    else:
+        print("Se o arquivo aparece no Explorer mas não aqui, pode ser permissão.")
+        print("Aponte o caminho na mão:")
+        print("  python configurar_slskd.py --config <caminho do slskd.yml>")
 
 
 def contar_musicas(pasta: Path, teto: int = 50) -> int:
@@ -84,8 +128,7 @@ def perguntar_pasta() -> str:
 def main() -> int:
     config = achar_config()
     if config is None:
-        print("Não achei o slskd.yml em:", sistema.pasta_de_dados_do_slskd())
-        print("O slskd foi instalado? Veja o INSTALACAO.md.")
+        explicar_por_que_nao_achou()
         return 1
 
     texto = config.read_text(encoding="utf-8")
@@ -128,8 +171,16 @@ def main() -> int:
     print(f"  arquivo .......: {config}")
     print(f"  cópia anterior : {reserva}")
     print()
-    print("Agora ligue o motor e deixe a janela aberta:")
-    print(f'  "{sistema.encontrar_slskd() or "slskd.exe"}"')
+    print("Agora ligue o motor e deixe a janela aberta.")
+    print()
+    # O "&" não é enfeite: no PowerShell uma string entre aspas sozinha é só um texto,
+    # que ele ecoa de volta sem executar nada. É o erro que mais parece "não aconteceu
+    # nada" sem dar mensagem alguma.
+    print("  No PowerShell (repare no & na frente — sem ele o PowerShell só imprime o texto):")
+    print(f'    & "{sistema.encontrar_slskd() or "slskd.exe"}"')
+    print()
+    print("  No cmd ou no Git Bash:")
+    print(f'    "{sistema.encontrar_slskd() or "slskd.exe"}"')
     print()
     print("A interface web dele fica em http://localhost:5030 (login slskd / senha slskd).")
     return 0
