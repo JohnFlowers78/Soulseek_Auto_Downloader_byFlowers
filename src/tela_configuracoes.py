@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 import sistema
+import slskd_config
 from config import DIAS_ATE_REVALIDAR_COMPARTILHADA, Config
 
 FORMATOS_SEM_PERDA = [("flac", "FLAC"), ("wav", "WAV"), ("aiff", "AIFF"), ("aif", "AIF")]
@@ -295,6 +296,59 @@ class TelaConfiguracoes(QWidget):
         self._atualizar_conta()
         return aba
 
+    # ------------------------------------------------------------- slskd
+
+    def _atualizar_slskd_yml(self) -> None:
+        caminho = slskd_config.achar_yml()
+        if caminho is None:
+            self.rotulo_slskd_yml.setText("❌ slskd.yml não encontrado — o slskd está instalado?")
+            return
+
+        usuario = slskd_config.ler_valor("username", caminho)
+        faltam = slskd_config.pendencias(caminho)
+        if faltam:
+            self.rotulo_slskd_yml.setText(f"⚠️ ainda falta preencher: {', '.join(faltam)}")
+        else:
+            self.rotulo_slskd_yml.setText(f"✅ configurado como <b>{usuario}</b>")
+
+        if usuario and not self.slsk_usuario.text():
+            self.slsk_usuario.setText(usuario)
+
+    def _gravar_no_slskd_yml(self) -> None:
+        """Grava usuário, senha e pasta compartilhada no slskd.yml.
+
+        Campo em branco **não apaga** o que já está lá — a senha chega aqui sempre
+        vazia (o campo é mascarado), e apagá-la a cada gravação de rotina seria o
+        mesmo acidente que já custou o token do Spotify neste projeto.
+        """
+        pasta = self.compartilhada.valor()
+        if pasta and not Path(pasta).is_dir():
+            QMessageBox.warning(
+                self,
+                "A pasta compartilhada não existe",
+                f"{pasta}\n\nEscolha uma que exista na aba 📁 Pastas.",
+            )
+            return
+
+        try:
+            onde = slskd_config.gravar(
+                usuario=self.slsk_usuario.text(),
+                senha=self.slsk_senha.text(),
+                pasta=pasta,
+            )
+        except (FileNotFoundError, OSError) as erro:
+            QMessageBox.warning(self, "Não consegui gravar", str(erro))
+            return
+
+        self.slsk_senha.clear()
+        self._atualizar_slskd_yml()
+        QMessageBox.information(
+            self,
+            "Gravado",
+            f"Credenciais gravadas em:\n{onde}\n\n"
+            "Desligue e ligue o motor na aba 🔌 Motor para ele ler as credenciais novas.",
+        )
+
     # ----------------------------------------------------------- Spotify
 
     def _atualizar_conta(self) -> None:
@@ -415,6 +469,45 @@ class TelaConfiguracoes(QWidget):
         aba = QWidget()
         corpo = QVBoxLayout(aba)
 
+        corpo.addWidget(_titulo("Sua conta do Soulseek"))
+        corpo.addWidget(
+            _explicacao(
+                "É com esta conta que o motor entra na rede. Ela fica no "
+                "<code>slskd.yml</code>, e este painel grava lá — você não precisa "
+                "abrir o arquivo.<br><br>"
+                "A <b>pasta compartilhada</b> é a da aba 📁 Pastas: ela é gravada aqui "
+                "junto, porque o slskd precisa dela para entrar."
+            )
+        )
+
+        conta = QFormLayout()
+        self.slsk_usuario = QLineEdit()
+        self.slsk_usuario.setPlaceholderText("seu usuário do Soulseek")
+        self.slsk_senha = QLineEdit()
+        self.slsk_senha.setEchoMode(QLineEdit.EchoMode.Password)
+        self.slsk_senha.setPlaceholderText("deixe em branco para manter a atual")
+        conta.addRow("Usuário:", self.slsk_usuario)
+        conta.addRow("Senha:", self.slsk_senha)
+        corpo.addLayout(conta)
+
+        self.rotulo_slskd_yml = QLabel("")
+        self.rotulo_slskd_yml.setWordWrap(True)
+        botao_gravar = QPushButton("Gravar no slskd.yml")
+        botao_gravar.clicked.connect(self._gravar_no_slskd_yml)
+
+        linha_conta = QHBoxLayout()
+        linha_conta.addWidget(botao_gravar)
+        linha_conta.addWidget(self.rotulo_slskd_yml, 1)
+        corpo.addLayout(linha_conta)
+
+        corpo.addWidget(
+            _explicacao(
+                "⚠️ Depois de gravar, <b>desligue e ligue o motor</b> na aba 🔌 Motor — "
+                "o slskd lê as credenciais ao iniciar."
+            )
+        )
+
+        corpo.addSpacing(16)
         corpo.addWidget(_titulo("Ligação com o slskd"))
         corpo.addWidget(
             _explicacao(
@@ -607,6 +700,7 @@ class TelaConfiguracoes(QWidget):
         self.mae_acervo.definir(c.pasta_mae_acervo or str(padrao / "Acervo"))
         self.compartilhada.definir(c.pasta_compartilhada)
         self._atualizar_confirmacao()
+        self._atualizar_slskd_yml()
         self.spotify_id.setText(c.spotify_client_id)
         self.spotify_secret.setText(c.spotify_client_secret)
         self.slskd_url.setText(c.slskd_url)

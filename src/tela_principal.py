@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -62,6 +62,15 @@ class JanelaPrincipal(QMainWindow):
         self.setCentralWidget(self.abas)
 
         self.statusBar().showMessage("Pronto.")
+
+        # O estado do motor precisa de relógio próprio. Sem isto, o indicador congela
+        # no instante do clique em "Ligar" — quando a porta ainda NÃO abriu — e fica
+        # amarelo para sempre, mesmo com o slskd já no ar e trabalhando. Aconteceu: o
+        # usuário esperou dez minutos olhando um amarelo que era só tela velha.
+        self.relogio = QTimer(self)
+        self.relogio.setInterval(2000)
+        self.relogio.timeout.connect(self._atualizar_motor)
+        self.relogio.start()
         self._atualizar_motor()
 
     # ------------------------------------------------------------- baixar
@@ -356,6 +365,7 @@ class JanelaPrincipal(QMainWindow):
 
     def closeEvent(self, evento) -> None:  # noqa: N802 - nome exigido pelo Qt
         """Ao fechar a janela, derruba o que subimos — nada de processo órfão."""
+        self.relogio.stop()  # senão dispara sobre widget já destruído
         if self.tarefa is not None and self.tarefa.isRunning():
             self.tarefa.pedir_para_parar()
             self.tarefa.wait(5000)
