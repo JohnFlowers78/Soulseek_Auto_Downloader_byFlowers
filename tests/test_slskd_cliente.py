@@ -10,7 +10,7 @@ Nada toca a rede: o transporte HTTP é injetado.
 import pytest
 
 from limitador import LimitadorDeBuscas
-from modelos import EstadoTransferencia
+from modelos import Candidato, EstadoTransferencia
 from slskd_cliente import (
     ClienteSlskd,
     ErroSlskd,
@@ -297,8 +297,44 @@ def test_enfileirar_manda_nome_e_tamanho():
 
     (metodo, caminho, corpo) = transporte.chamadas[0]
     assert metodo == "POST"
-    assert caminho == "/transfers/downloads/Studio 560"
+    # "Studio 560" tem espaço — vai codificado, como todo nome de usuário.
+    assert caminho == "/transfers/downloads/Studio%20560"
     assert corpo == [{"filename": ARQUIVO_MP3["filename"], "size": 5403074}]
+
+
+def test_nome_de_usuario_com_espaco_e_apostrofo_vai_codificado():
+    """O download real que falhou: *URL can't contain control characters*.
+
+    Nome de usuário do Soulseek é texto livre — "Paul Kersey's Gun" tem espaço e
+    apóstrofo, e eu enfiava direto no caminho da URL.
+    """
+    transporte = TransporteFalso()
+    candidato = Candidato(
+        usuario="Paul Kersey's Gun", caminho=r"x\a.flac", tamanho_bytes=1000
+    )
+    cliente(transporte).enfileirar(candidato)
+
+    (_, caminho, _) = transporte.chamadas[0]
+    assert " " not in caminho
+    assert caminho == "/transfers/downloads/Paul%20Kersey%27s%20Gun"
+
+
+def test_usuario_com_acento_e_barra_tambem_vai_codificado():
+    transporte = TransporteFalso()
+    candidato = Candidato(usuario="joão/maria", caminho=r"x\a.flac", tamanho_bytes=1000)
+    cliente(transporte).enfileirar(candidato)
+
+    (_, caminho, _) = transporte.chamadas[0]
+    # A barra precisa virar %2F, senão vira outro segmento de caminho.
+    assert "/transfers/downloads/jo%C3%A3o%2Fmaria" == caminho
+
+
+def test_cancelar_tambem_codifica():
+    transporte = TransporteFalso()
+    cliente(transporte).cancelar("Paul Kersey's Gun", "abc-123")
+
+    (_, caminho, _) = transporte.chamadas[0]
+    assert " " not in caminho
 
 
 def test_downloads_achata_usuario_pasta_arquivo():
@@ -386,6 +422,93 @@ def test_slskd_fora_do_ar_sugere_a_causa_provavel(monkeypatch):
         ClienteSlskd()._http("GET", "/application")
 
     assert "Ele está rodando?" in str(erro.value)
+
+
+def test_409_na_busca_e_repetido_em_vez_de_derrubar_tudo():
+    """O 409 matou uma playlist de 14 na quarta faixa.
+
+    Significa conflito — o slskd ainda ocupado com busca anterior. Não é erro
+    permanente: esperar e repetir resolve.
+    """
+    tentativas = {"n": 0}
+
+    def transporte(metodo, caminho, corpo=None):
+        if metodo == "POST" and caminho == "/searches":
+            tentativas["n"] += 1
+            if tentativas["n"] < 3:
+                raise ErroSlskd("O slskd respondeu HTTP 409 em /searches.")
+            return 200, {"id": "x"}
+        if caminho.endswith("/responses"):
+            return 200, [RESPOSTA]
+        if caminho.startswith("/searches"):
+            return 200, {"isComplete": True}
+        return 200, None
+
+    candidatos = cliente(transporte).buscar("tim maia")
+
+    assert tentativas["n"] == 3
+    assert len(candidatos) == 2
+
+
+def test_409_insistente_acaba_desistindo():
+    def transporte(metodo, caminho, corpo=None):
+        if metodo == "POST" and caminho == "/searches":
+            raise ErroSlskd("O slskd respondeu HTTP 409 em /searches.")
+        return 200, None
+
+    with pytest.raises(ErroSlskd) as erro:
+        cliente(transporte).buscar("x")
+    assert "409" in str(erro.value)
+
+
+def test_a_cota_do_limitador_nao_e_gasta_por_tentativa_recusada():
+    # Uma busca recusada com 409 não chegou a ser feita; descontá-la encurtaria o
+    # ritmo sem motivo.
+    limitador = LimitadorDeBuscas(limite=10, janela_s=100, relogio=lambda: 0.0, dormir=lambda s: None)
+    tentativas = {"n": 0}
+
+    def transporte(metodo, caminho, corpo=None):
+        if metodo == "POST" and caminho == "/searches":
+            tentativas["n"] += 1
+            if tentativas["n"] < 3:
+                raise ErroSlskd("O slskd respondeu HTTP 409 em /searches.")
+            return 200, {"id": "x"}
+        if caminho.endswith("/responses"):
+            return 200, []
+        return 200, {"isComplete": True}
+
+    cliente(transporte, limitador=limitador).buscar("x")
+    assert limitador.usadas == 1
+
+
+def test_erro_que_nao_e_409_sobe_na_hora():
+    def transporte(metodo, caminho, corpo=None):
+        raise ErroSlskd("O slskd respondeu HTTP 500 em /searches.")
+
+    with pytest.raises(ErroSlskd) as erro:
+        cliente(transporte).buscar("x")
+    assert "500" in str(erro.value)
+
+
+def test_a_mensagem_de_erro_carrega_o_que_o_slskd_disse(monkeypatch):
+    # Sem o corpo, um HTTP 500 vira "deu erro" e não há o que investigar.
+    import io
+    import urllib.error
+
+    import slskd_cliente
+
+    def recusar(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "url", 500, "Erro", {}, io.BytesIO(b"Nao consegui falar com o usuario")
+        )
+
+    monkeypatch.setattr(slskd_cliente.urllib.request, "urlopen", recusar)
+
+    with pytest.raises(ErroSlskd) as erro:
+        ClienteSlskd()._http("POST", "/transfers/downloads/joao")
+
+    assert "500" in str(erro.value)
+    assert "Nao consegui falar com o usuario" in str(erro.value)
 
 
 def test_outro_erro_http_diz_o_codigo_e_o_caminho(monkeypatch):

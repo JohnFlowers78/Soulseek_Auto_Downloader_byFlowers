@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -48,6 +49,24 @@ _ESTADOS = (
 
 class ErroSlskd(Exception):
     """Algo deu errado falando com o slskd. A mensagem é para aparecer na tela."""
+
+
+def _corpo_do_erro(erro: urllib.error.HTTPError) -> str:
+    """Lê o corpo de uma resposta de erro, sem deixar a leitura virar outro erro."""
+    try:
+        return (erro.read() or b"").decode("utf-8", "replace").strip()[:300]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _na_url(texto: str) -> str:
+    """Codifica um pedaço de caminho de URL.
+
+    Nome de usuário do Soulseek é texto livre: ``Paul Kersey's Gun`` tem espaço e
+    apóstrofo, e foi assim que um download real falhou com *URL can't contain control
+    characters*. Nada que venha da rede entra numa URL sem passar por aqui.
+    """
+    return urllib.parse.quote(texto, safe="")
 
 
 def ler_chave_do_yml(caminho: Path | None = None) -> str:
@@ -176,7 +195,16 @@ class ClienteSlskd:
                     "O slskd recusou a chave de API. Confira se a chave do app é a mesma "
                     "que está no slskd.yml, e se o papel dela é 'readwrite'."
                 ) from erro
-            raise ErroSlskd(f"O slskd respondeu HTTP {erro.code} em {caminho}.") from erro
+            # O corpo da resposta entra na mensagem. Sem ele, um HTTP 500 vira "deu
+            # erro" e não há o que investigar — foi o que aconteceu num download real.
+            #
+            # Lido UMA vez só: é um fluxo, e a segunda leitura volta vazia. Chamar duas
+            # vezes dentro da mesma expressão fazia a mensagem sair sempre sem o corpo.
+            disse = _corpo_do_erro(erro)
+            raise ErroSlskd(
+                f"O slskd respondeu HTTP {erro.code} em {caminho}."
+                + (f" Disse: {disse}" if disse else "")
+            ) from erro
         except urllib.error.URLError as erro:
             raise ErroSlskd(
                 f"Não consegui falar com o slskd em {self.base}. Ele está rodando? "
@@ -211,8 +239,7 @@ class ClienteSlskd:
         """
         self.limitador.aguardar_vez()
 
-        busca_id = str(uuid.uuid4())
-        self._chamar("POST", "/searches", {"id": busca_id, "searchText": texto})
+        busca_id = self._abrir_busca(texto)
         try:
             self._esperar_terminar(busca_id, espera_max_s)
             respostas = self._chamar("GET", f"/searches/{busca_id}/responses") or []
@@ -223,6 +250,43 @@ class ClienteSlskd:
                 self._chamar("DELETE", f"/searches/{busca_id}")
             except ErroSlskd:
                 pass
+
+    def _abrir_busca(self, texto: str, tentativas: int = 3) -> str:
+        """Abre a busca no slskd, insistindo quando ele responde 409.
+
+        O 409 apareceu numa playlist de verdade e **derrubou a corrida inteira na quarta
+        faixa**. Ele significa conflito — na prática, o slskd ainda está ocupado com
+        busca anterior. Não é erro permanente: esperar e repetir resolve.
+
+        A cota do limitador **não** é consumida de novo: uma busca recusada não chegou
+        a ser feita, e descontá-la encurtaria o ritmo sem motivo.
+        """
+        ultimo_erro: ErroSlskd | None = None
+        for tentativa in range(tentativas):
+            busca_id = str(uuid.uuid4())
+            try:
+                self._chamar("POST", "/searches", {"id": busca_id, "searchText": texto})
+                return busca_id
+            except ErroSlskd as erro:
+                if "HTTP 409" not in str(erro):
+                    raise
+                ultimo_erro = erro
+                self._limpar_buscas_terminadas()
+                self._dormir(3.0 * (tentativa + 1))
+        raise ultimo_erro or ErroSlskd("Não consegui abrir a busca no slskd.")
+
+    def _limpar_buscas_terminadas(self) -> None:
+        """Apaga do slskd as buscas que já acabaram.
+
+        Buscas acumulam, e acumulada demais é a explicação mais provável do 409. Falhar
+        aqui não importa: é faxina, não o trabalho.
+        """
+        try:
+            for busca in self._chamar("GET", "/searches") or []:
+                if busca.get("isComplete") and busca.get("id"):
+                    self._chamar("DELETE", f"/searches/{busca['id']}")
+        except (ErroSlskd, AttributeError, TypeError):
+            pass
 
     def _esperar_terminar(self, busca_id: str, espera_max_s: float) -> dict:
         """Fica consultando até a busca acabar ou o tempo estourar.
@@ -247,7 +311,7 @@ class ClienteSlskd:
     def enfileirar(self, candidato: Candidato) -> bool:
         """Põe um arquivo na fila de download."""
         corpo = [{"filename": candidato.caminho, "size": candidato.tamanho_bytes}]
-        self._chamar("POST", f"/transfers/downloads/{candidato.usuario}", corpo)
+        self._chamar("POST", f"/transfers/downloads/{_na_url(candidato.usuario)}", corpo)
         return True
 
     def downloads(self) -> list[Transferencia]:
@@ -277,7 +341,7 @@ class ClienteSlskd:
         )
 
     def cancelar(self, usuario: str, id_transferencia: str, remover: bool = False) -> bool:
-        caminho = f"/transfers/downloads/{usuario}/{id_transferencia}"
+        caminho = f"/transfers/downloads/{_na_url(usuario)}/{_na_url(id_transferencia)}"
         if remover:
             caminho += "?remove=true"
         self._chamar("DELETE", caminho)

@@ -40,12 +40,19 @@ def _criterios(config: Config) -> Criterios:
 
 def _tempo_legivel(segundos: float) -> str:
     minutos = int(segundos // 60)
+    if minutos < 1:
+        return f"{int(segundos)} s"
     if minutos < 60:
         return f"{minutos} min"
     return f"{minutos // 60}h{minutos % 60:02d}"
 
 
-def _relatorio(resultados: list[ResultadoDaBusca], lotes: dict, destino: Path) -> None:
+def _relatorio(
+    resultados: list[ResultadoDaBusca],
+    lotes: dict,
+    destino: Path,
+    falhas: list[tuple] | None = None,
+) -> None:
     baixadas, presas, nao_vieram = [], [], []
     for resultado in resultados:
         lote = lotes.get(id(resultado))
@@ -84,6 +91,12 @@ def _relatorio(resultados: list[ResultadoDaBusca], lotes: dict, destino: Path) -
             elif resultado.descartados:
                 detalhe = f" — {len(resultado.descartados)} achados, nenhum passou no filtro"
             print(f"   {resultado.faixa}{detalhe}")
+
+    if falhas:
+        print(f"\n💥 DERAM ERRO ({len(falhas)}) — dá para tentar estas de novo depois")
+        for faixa, motivo in falhas:
+            print(f"   {faixa}")
+            print(f"      {motivo}")
 
     print()
 
@@ -152,8 +165,8 @@ def main(argumentos: list[str]) -> int:
         cliente, criterios=_criterios(config), quantidade_por_faixa=config.quantidade_por_faixa
     )
     estimativa = buscador.tempo_estimado_s(len(faixas))
-    print(f"\n⏱  Só de espera pelo limite da rede: ~{_tempo_legivel(estimativa)}.")
-    print("   (o tempo de cada busca e de cada download entra por cima)")
+    print(f"\n⏱  Busca: ~{_tempo_legivel(estimativa)} (limite da rede + tempo de cada busca).")
+    print("   O download de cada faixa entra por cima disso.")
 
     if "--sem-perguntar" not in argumentos:
         if input("\nComeçar? (s/N) ").strip().lower() != "s":
@@ -168,29 +181,45 @@ def main(argumentos: list[str]) -> int:
     resultados: list[ResultadoDaBusca] = []
     lotes: dict = {}
 
+    falhas: list[tuple[Faixa, str]] = []
+
     for i, faixa in enumerate(faixas, 1):
         print(f"\n[{i}/{len(faixas)}] {faixa}")
-        resultado = buscador.buscar_faixa(faixa)
-        resultados.append(resultado)
-        print(f"   {resultado.resumo()}")
+        # Cada faixa é isolada. Uma playlist de 14 já morreu na quarta porque um
+        # HTTP 409 do slskd subiu até o topo e levou as outras dez junto. Erro de uma
+        # faixa é problema daquela faixa — nunca da corrida.
+        try:
+            resultado = _processar(faixa, buscador, operario, destino, lotes)
+            resultados.append(resultado)
+        except KeyboardInterrupt:
+            raise
+        except Exception as erro:  # noqa: BLE001 — o motivo vai para o relatório
+            falhas.append((faixa, f"{type(erro).__name__}: {erro}"))
+            print(f"   💥 falhou: {erro}")
 
-        if not resultado.escolhidos:
-            continue
-
-        fila = operario.enfileirar(resultado.escolhidos)
-        for candidato, motivo in fila.recusados:
-            print(f"   ⚠ recusado por {candidato.usuario}: {motivo}")
-        if not fila.aceitos:
-            continue
-
-        lote = operario.acompanhar(fila.aceitos, espera_max_s=300)
-        lotes[id(resultado)] = lote
-        movidos = operario.organizar(lote, destino)
-        for caminho in movidos:
-            print(f"   ⬇ {caminho.name}")
-
-    _relatorio(resultados, lotes, destino)
+    _relatorio(resultados, lotes, destino, falhas)
     return 0
+
+
+def _processar(faixa, buscador, operario, destino, lotes) -> ResultadoDaBusca:
+    """Busca, enfileira, acompanha e organiza **uma** faixa."""
+    resultado = buscador.buscar_faixa(faixa)
+    print(f"   {resultado.resumo()}")
+
+    if not resultado.escolhidos:
+        return resultado
+
+    fila = operario.enfileirar(resultado.escolhidos)
+    for candidato, motivo in fila.recusados:
+        print(f"   ⚠ recusado por {candidato.usuario}: {motivo}")
+    if not fila.aceitos:
+        return resultado
+
+    lote = operario.acompanhar(fila.aceitos, espera_max_s=300)
+    lotes[id(resultado)] = lote
+    for caminho in operario.organizar(lote, destino):
+        print(f"   ⬇ {caminho.name}")
+    return resultado
 
 
 if __name__ == "__main__":

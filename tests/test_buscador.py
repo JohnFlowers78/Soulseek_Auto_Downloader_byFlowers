@@ -309,16 +309,29 @@ def test_busca_uma_lista_inteira():
     assert [r.faixa.titulo for r in resultados] == ["Não Vou Ficar", "Flor de Lis"]
 
 
-def test_estimativa_de_tempo_usa_o_limitador():
+def test_estimativa_soma_a_espera_do_limite_com_o_tempo_das_buscas():
     from limitador import LimitadorDeBuscas
 
     class ComLimitador(ClienteFalso):
         limitador = LimitadorDeBuscas()
 
-    # 100 faixas × 1.6 variantes = 160 buscas
-    segundos = Buscador(ComLimitador()).tempo_estimado_s(100)
-    assert segundos > 0
-    assert segundos == pytest.approx(880.0)
+    # 100 faixas × 1.6 = 160 buscas → 880 s de espera + 160 × 12 s de busca
+    assert Buscador(ComLimitador()).tempo_estimado_s(100) == pytest.approx(880.0 + 1920.0)
+
+
+def test_lista_curta_nao_estima_zero():
+    """'~0 min' para 14 faixas era um número inútil.
+
+    Só a espera do limitador dava zero, porque as 34 primeiras buscas saem sem
+    esperar — mas cada busca ainda leva o tempo dela na rede.
+    """
+    from limitador import LimitadorDeBuscas
+
+    class ComLimitador(ClienteFalso):
+        limitador = LimitadorDeBuscas()
+
+    segundos = Buscador(ComLimitador()).tempo_estimado_s(14)
+    assert segundos > 120, "14 faixas não levam menos de dois minutos"
 
 
 def test_resultado_vazio_nao_explode():

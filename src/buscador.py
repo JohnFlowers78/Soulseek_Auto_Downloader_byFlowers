@@ -192,12 +192,21 @@ class Buscador:
         """Busca uma lista inteira. Demora o que o limitador mandar."""
         return [self.buscar_faixa(faixa) for faixa in faixas]
 
-    def tempo_estimado_s(self, quantas_faixas: int, variantes_por_faixa: float = 1.6) -> float:
-        """Piso de tempo para uma lista, em segundos.
+    #: Quanto uma busca leva na rede, em média. Medido: uma trouxe 252 respostas em 5 s,
+    #: outra rodou até o tempo-limite. Doze segundos é o meio-termo observado.
+    SEGUNDOS_POR_BUSCA = 12.0
 
-        `variantes_por_faixa` é uma média: a maioria das faixas resolve na primeira ou
-        segunda variante. O número é chute informado, e o relatório real vai permitir
-        calibrá-lo com o uso.
+    def tempo_estimado_s(self, quantas_faixas: int, variantes_por_faixa: float = 1.6) -> float:
+        """Quanto a lista deve levar, em segundos — espera do limite **mais** as buscas.
+
+        Só a espera do limitador dava zero para listas curtas, porque as 34 primeiras
+        buscas saem sem esperar. "~0 min" para 14 faixas é um número inútil: o usuário
+        lê isso e acha que vai ser instantâneo, quando na prática são uns três minutos
+        só de rede, e mais o tempo dos downloads.
+
+        `variantes_por_faixa` é média: a maioria resolve na primeira ou segunda. É
+        chute informado, e o relatório real permite calibrá-lo com o uso.
         """
-        buscas = int(quantas_faixas * variantes_por_faixa)
-        return self.cliente.limitador.tempo_estimado_s(buscas)
+        buscas = max(1, int(quantas_faixas * variantes_por_faixa))
+        espera = self.cliente.limitador.tempo_estimado_s(buscas)
+        return espera + buscas * self.SEGUNDOS_POR_BUSCA
