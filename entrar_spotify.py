@@ -58,9 +58,11 @@ def main() -> int:
     try:
         leitor = LeitorSpotify(tokens["access_token"])
         eu = leitor._get("https://api.spotify.com/v1/me")
+        # `product` (free/premium) só vem com o escopo `user-read-private`, que não
+        # pedimos — não precisamos saber o plano para ler playlist. Então some, em vez
+        # de mostrar um "(?)" que parece defeito.
         nome = eu.get("display_name") or eu.get("id") or "(sem nome)"
-        produto = eu.get("product", "?")
-        print(f"   conta: {nome}  ({produto})")
+        print(f"   conta: {nome}")
     except ErroSpotify as erro:
         print(f"   ⚠ entrou, mas não consegui ler a conta: {erro}")
 

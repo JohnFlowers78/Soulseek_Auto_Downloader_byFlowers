@@ -119,8 +119,14 @@ def main(argumentos: list[str]) -> int:
         return 1
 
     if not faixas:
-        print("A playlist veio vazia. Se ela não é sua, a API não entrega o conteúdo —")
-        print("desde fev/2026 só playlists do próprio usuário logado.")
+        print(f"\n⚠ A playlist '{nome}' veio sem nenhuma faixa.")
+        print()
+        print("Playlist PRIVADA não é problema — suas playlists privadas funcionam.")
+        print("O que a API não entrega, desde fev/2026, é o conteúdo de playlist de")
+        print("OUTRA PESSOA, por mais pública que seja. A regra é dono, não visibilidade.")
+        print()
+        print("Se esta playlist é sua mesmo, pode ser que ela esteja realmente vazia,")
+        print("ou que só tenha podcast (episódio não é faixa de música).")
         return 1
 
     print(f"\n📋 {nome} — {len(faixas)} faixa(s)\n")
