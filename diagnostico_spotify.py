@@ -25,6 +25,7 @@ from leitor_spotify import (  # noqa: E402
     ErroSpotify,
     acesso_a_partir_do_refresh,
     extrair_id_da_playlist,
+    lista_de_itens,
 )
 
 
@@ -102,17 +103,27 @@ def main(argumentos: list[str]) -> int:
         else:
             print(f"   {descrever(corpo)}")
 
-        # Para os que listam faixas, mostra o formato de UM item.
-        if isinstance(corpo, dict) and corpo.get("items"):
-            primeiro = corpo["items"][0]
-            print(f"   chaves do item: {sorted(primeiro.keys())}")
-            faixa = primeiro.get("track")
+        # Mostra o formato de UM item, achando a lista onde quer que ela esteja.
+        itens = lista_de_itens(corpo)
+        if itens:
+            primeiro = itens[0]
+            print(f"   {len(itens)} item(ns); chaves do item: {sorted(primeiro.keys())}")
+            faixa = primeiro.get("track") or primeiro.get("item")
             if isinstance(faixa, dict):
-                print(f"   chaves da faixa: {sorted(faixa.keys())[:12]}")
-                print(f"   exemplo: {faixa.get('name')!r} — "
-                      f"{[a.get('name') for a in faixa.get('artists') or []]}")
+                print(f"   chaves da faixa: {sorted(faixa.keys())[:14]}")
+                print(
+                    f"   exemplo: {faixa.get('name')!r} — "
+                    f"{[a.get('name') for a in faixa.get('artists') or []]}"
+                )
             else:
-                print(f"   'track' veio como: {type(faixa).__name__}")
+                print(f"   nem 'track' nem 'item' é dicionário: {type(faixa).__name__}")
+        elif isinstance(corpo, dict):
+            # Nenhuma lista achada: mostra onde o conteúdo pode estar escondido.
+            for chave in ("items", "tracks"):
+                valor = corpo.get(chave)
+                if isinstance(valor, dict):
+                    print(f"   '{chave}' é objeto de paginação: {sorted(valor.keys())}")
+                    print(f"      total={valor.get('total')}  next={bool(valor.get('next'))}")
         print()
 
     print("Pode colar esta saída inteira — não há token nem segredo aqui.")

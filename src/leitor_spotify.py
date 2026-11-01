@@ -274,13 +274,55 @@ def autorizar_no_navegador(
 # ---------------------------------------------------------------------------
 
 
+def lista_de_itens(corpo: Any) -> list[dict]:
+    """Acha a lista de itens dentro do que a API devolveu, nas formas que ela usa.
+
+    Medido ao vivo: `GET /playlists/{id}` traz **`items` como objeto de paginação**
+    (`href, items, limit, next, offset, previous, total`), com a lista de verdade
+    aninhada lá dentro. A forma antiga chamava esse objeto de `tracks`, e um endpoint
+    de página devolve o objeto de paginação direto.
+
+    Em vez de escolher uma e torcer — foi assim que errei duas vezes aqui —, esta
+    função aceita as três.
+    """
+    if not isinstance(corpo, dict):
+        return []
+
+    for chave in ("items", "tracks"):
+        valor = corpo.get(chave)
+        if isinstance(valor, list):
+            return [i for i in valor if isinstance(i, dict)]
+        if isinstance(valor, dict) and isinstance(valor.get("items"), list):
+            return [i for i in valor["items"] if isinstance(i, dict)]
+    return []
+
+
+def proxima_pagina(corpo: Any) -> str:
+    """O endereço da próxima página, venha ele na raiz ou dentro da paginação."""
+    if not isinstance(corpo, dict):
+        return ""
+    if isinstance(corpo.get("next"), str):
+        return corpo["next"]
+    for chave in ("items", "tracks"):
+        valor = corpo.get(chave)
+        if isinstance(valor, dict) and isinstance(valor.get("next"), str):
+            return valor["next"]
+    return ""
+
+
 def faixa_do_item(item: dict) -> Faixa | None:
     """Converte um item da playlist em `Faixa`. `None` para o que não é música.
 
-    Playlist tem lixo previsível: faixa removida do catálogo vira `track: null`, e
-    episódio de podcast vem com `type: "episode"`. Os dois chegam como item normal.
+    Playlist tem lixo previsível: faixa removida do catálogo vira nulo, e episódio de
+    podcast vem com `type: "episode"`. Os dois chegam como item normal.
+
+    A faixa vem em `track` (forma antiga) ou em `item` (a renomeação de fev/2026).
+    Aceitar as duas custa uma linha e evita a terceira rodada de adivinhação.
     """
-    faixa = (item or {}).get("track") or {}
+    bruto = item or {}
+    faixa = bruto.get("track") or bruto.get("item") or {}
+    if not isinstance(faixa, dict):
+        return None
     if not faixa or faixa.get("type") == "episode":
         return None
 
@@ -348,16 +390,25 @@ class LeitorSpotify:
     CAMINHOS_DAS_FAIXAS = ("tracks", "items")
 
     def faixas_da_playlist(self, id_playlist: str, limite_paginas: int = 100) -> list[Faixa]:
-        """Lê todas as faixas, seguindo a paginação."""
-        for caminho in self.CAMINHOS_DAS_FAIXAS:
+        """Lê todas as faixas, seguindo a paginação.
+
+        Começa pela **própria playlist**, e não por um sub-endereço: medido ao vivo,
+        `GET /playlists/{id}` já traz a primeira página das faixas embutida. Uma chamada
+        a menos, e é o caminho que comprovadamente responde nesta conta. Os
+        sub-endereços ficam como reserva.
+        """
+        base = f"{API}/playlists/{id_playlist}"
+        for rotulo, url in (
+            ("playlist", base),
+            ("tracks", f"{base}/tracks?limit=100"),
+            ("items", f"{base}/items?limit=100"),
+        ):
             try:
-                faixas = self._ler_paginas(
-                    f"{API}/playlists/{id_playlist}/{caminho}?limit=100", limite_paginas
-                )
+                faixas = self._ler_paginas(url, limite_paginas)
             except ErroSpotify:
                 continue  # este endereço não serve; tenta o próximo
             if faixas:
-                self.caminho_que_funcionou = caminho
+                self.caminho_que_funcionou = rotulo
                 return faixas
         return []
 
@@ -367,11 +418,11 @@ class LeitorSpotify:
         vistos = 0
         while url and vistos < limite_paginas:
             pagina = self._get(url)
-            for item in pagina.get("items") or []:
+            for item in lista_de_itens(pagina):
                 faixa = faixa_do_item(item)
                 if faixa:
                     faixas.append(faixa)
-            url = pagina.get("next") or ""
+            url = proxima_pagina(pagina)
             vistos += 1
         return faixas
 

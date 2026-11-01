@@ -20,7 +20,9 @@ from leitor_spotify import (
     extrair_id_da_playlist,
     faixa_do_item,
     gerar_verificador,
+    lista_de_itens,
     montar_url_de_autorizacao,
+    proxima_pagina,
 )
 
 ID = "37i9dQZF1DXcBWIGoYBM5M"
@@ -159,6 +161,84 @@ def test_campos_ausentes_nao_explodem():
     assert faixa.artista == ""
     assert faixa.duracao_s is None
     assert faixa.isrc == ""
+
+
+# ------------------------------------------- onde fica a lista de itens
+#
+# Medido ao vivo numa playlist de verdade: `GET /playlists/{id}` devolve `items` como
+# OBJETO DE PAGINAÇÃO, com a lista aninhada dentro:
+#
+#   name='Tirar pira no Violão', public=False, items={7 chaves}, type='playlist'
+#
+# Eu tinha escrito `corpo["items"]` esperando uma lista. Errei duas vezes aqui por
+# escolher uma forma e torcer; estes testes fixam as três que a API usa.
+
+PAGINACAO_REAL = {
+    "name": "Tirar pira no Violão",
+    "public": False,
+    "items": {
+        "href": "https://api.spotify.com/v1/playlists/x/items",
+        "items": [item()],
+        "limit": 100,
+        "next": None,
+        "offset": 0,
+        "previous": None,
+        "total": 14,
+    },
+}
+
+
+def test_acha_a_lista_dentro_do_objeto_de_paginacao():
+    assert len(lista_de_itens(PAGINACAO_REAL)) == 1
+
+
+def test_acha_a_lista_quando_ela_vem_na_raiz():
+    assert len(lista_de_itens({"items": [item(), item()]})) == 2
+
+
+def test_acha_a_lista_na_forma_antiga_com_tracks():
+    assert len(lista_de_itens({"tracks": {"items": [item()]}})) == 1
+
+
+@pytest.mark.parametrize("corpo", [None, {}, [], "texto", {"items": None}, {"items": 7}])
+def test_corpo_estranho_devolve_lista_vazia(corpo):
+    assert lista_de_itens(corpo) == []
+
+
+def test_item_que_nao_e_dicionario_e_descartado():
+    assert lista_de_itens({"items": [item(), "lixo", None]}) == [item()]
+
+
+def test_acha_o_next_na_raiz_e_dentro_da_paginacao():
+    assert proxima_pagina({"next": "https://api/p2"}) == "https://api/p2"
+    assert proxima_pagina({"items": {"next": "https://api/p3"}}) == "https://api/p3"
+    assert proxima_pagina({"items": {"next": None}}) == ""
+    assert proxima_pagina({}) == ""
+
+
+def test_a_faixa_pode_vir_em_item_e_nao_em_track():
+    # A renomeação de fev/2026: 'tracks' virou 'items', e com ela 'track' virou 'item'.
+    dados = item()["track"]
+    faixa = faixa_do_item({"item": dados})
+    assert faixa is not None
+    assert faixa.titulo == "Não Vou Ficar"
+
+
+def test_faixa_que_nao_e_dicionario_nao_explode():
+    assert faixa_do_item({"track": "isso não devia estar aqui"}) is None
+
+
+def test_le_a_playlist_na_forma_real_medida():
+    def http(metodo, url, cabecalhos, corpo=None):
+        if "fields=name" in url:
+            return {"name": "Tirar pira no Violão"}
+        return PAGINACAO_REAL
+
+    leitor = LeitorSpotify("t", http)
+    nome, faixas = leitor.ler(f"https://open.spotify.com/playlist/{ID}")
+
+    assert nome == "Tirar pira no Violão"
+    assert len(faixas) == 1
 
 
 # ------------------------------------------------------------- paginação
