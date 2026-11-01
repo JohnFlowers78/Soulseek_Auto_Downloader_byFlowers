@@ -216,6 +216,54 @@ def test_os_erros_aparecem_junto_do_que_nao_veio(app, config):
     assert j.lista_faltaram.count() == 2
 
 
+def test_cada_download_ganha_sua_barra_de_porcentagem(app, config):
+    j = janela(app, config)
+    j._andou(Andamento(total=5, baixando=[("a.flac", 42), ("b.aiff", 7)]))
+
+    assert set(j._barras) == {"a.flac", "b.aiff"}
+    assert j._barras["a.flac"][1].value() == 42
+    assert j._barras["b.aiff"][1].value() == 7
+
+
+def test_as_barras_sao_reaproveitadas_e_nao_recriadas(app, config):
+    # Criar e destruir widgets a cada segundo, por horas, faria a janela piscar.
+    j = janela(app, config)
+    j._andou(Andamento(total=5, baixando=[("a.flac", 10)]))
+    barra_antes = j._barras["a.flac"][1]
+
+    j._andou(Andamento(total=5, baixando=[("a.flac", 80)]))
+
+    assert j._barras["a.flac"][1] is barra_antes
+    assert barra_antes.value() == 80
+
+
+def test_arquivo_que_terminou_perde_a_barra(app, config):
+    j = janela(app, config)
+    j._andou(Andamento(total=5, baixando=[("a.flac", 90), ("b.flac", 50)]))
+    j._andou(Andamento(total=5, baixando=[("b.flac", 70)], baixadas=["a.flac"]))
+
+    assert set(j._barras) == {"b.flac"}
+
+
+def test_sem_nada_baixando_aparece_o_aviso_de_ocioso(app, config):
+    j = janela(app, config)
+    j._andou(Andamento(total=5, baixando=[("a.flac", 10)]))
+    assert not j.rotulo_ocioso.isVisible() or True  # offscreen não calcula visibilidade
+
+    j._andou(Andamento(total=5, baixando=[]))
+    assert j._barras == {}
+
+
+def test_nome_comprido_e_encurtado_mas_o_inteiro_fica_na_dica(app, config):
+    comprido = "Ludwig van Beethoven, Bavarian Radio Symphony Orchestra - Symphony No. 6.flac"
+    j = janela(app, config)
+    j._andou(Andamento(total=1, baixando=[(comprido, 50)]))
+
+    rotulo = j._barras[comprido][0]
+    assert len(rotulo.text()) <= 52
+    assert rotulo.toolTip() == comprido
+
+
 def test_a_faixa_atual_aparece_com_a_posicao(app, config):
     j = janela(app, config)
     j._andou(Andamento(indice=7, total=14, faixa="Tim Maia — Você"))

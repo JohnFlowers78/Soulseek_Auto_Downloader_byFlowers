@@ -30,7 +30,7 @@ from leitor_spotify import (
     autorizar_no_navegador,
     extrair_id_da_faixa,
 )
-from modelos import Faixa
+from modelos import EstadoTransferencia, Faixa
 from normalizador import nome_pasta_segura
 from politica import Foco
 from qualidade import Criterios
@@ -58,6 +58,9 @@ class Andamento:
     faixa: str = ""
     recado: str = ""
     baixadas: list[str] = field(default_factory=list)
+    #: O que esta baixando AGORA: (nome do arquivo, porcentagem). E a unica parte do
+    #: andamento que encolhe — um arquivo sai daqui quando termina.
+    baixando: list[tuple[str, int]] = field(default_factory=list)
     presas: list[str] = field(default_factory=list)
     nao_vieram: list[str] = field(default_factory=list)
     erros: list[str] = field(default_factory=list)
@@ -236,10 +239,17 @@ class TarefaDeDownload(QThread):
                 del pendentes[chave]
             return
 
+        andando: list[tuple[str, int]] = []
         for chave, lote in operario.conferir_varios(dict(pendentes)).items():
             self._guardar(operario, lote, destino, andamento)
+            andando += [
+                (t.candidato.nome_arquivo, int(t.progresso * 100))
+                for t in lote.transferencias
+                if t.estado is EstadoTransferencia.BAIXANDO
+            ]
             if lote.tudo_terminou:
                 del pendentes[chave]
+        andamento.baixando = andando
 
     @staticmethod
     def _guardar(operario, lote, destino, andamento: Andamento) -> None:

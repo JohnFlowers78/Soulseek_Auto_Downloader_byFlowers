@@ -118,6 +118,17 @@ class JanelaPrincipal(QMainWindow):
         self.rotulo_faixa.setWordWrap(True)
         corpo.addWidget(self.rotulo_faixa)
 
+        # O que está baixando AGORA, com barra por arquivo. Fica acima das listas
+        # porque é a informação que muda a cada segundo — é onde o olho vai.
+        self.caixa_baixando = QGroupBox("⬇ Baixando agora")
+        self.area_baixando = QVBoxLayout(self.caixa_baixando)
+        self.area_baixando.setContentsMargins(10, 6, 10, 6)
+        self.rotulo_ocioso = QLabel("nada baixando no momento")
+        self.rotulo_ocioso.setStyleSheet("color: palette(mid);")
+        self.area_baixando.addWidget(self.rotulo_ocioso)
+        corpo.addWidget(self.caixa_baixando)
+        self._barras: dict[str, tuple[QLabel, QProgressBar, QWidget]] = {}
+
         listas = QHBoxLayout()
         self.lista_baixadas = self._lista("✅ Baixadas", listas)
         self.lista_presas = self._lista("⏳ Presas na fila", listas)
@@ -262,12 +273,54 @@ class JanelaPrincipal(QMainWindow):
         self.rotulo_faixa.setText(
             f"[{andamento.indice}/{andamento.total}] {andamento.faixa}"
         )
+        self._desenhar_barras(andamento.baixando)
         self._encher(self.lista_baixadas, andamento.baixadas)
         self._encher(self.lista_presas, andamento.presas)
         self._encher(self.lista_faltaram, andamento.nao_vieram + andamento.erros)
         self.statusBar().showMessage(
             f"{len(andamento.baixadas)} baixada(s) · {andamento.porcentagem}%"
         )
+
+    def _desenhar_barras(self, baixando: list) -> None:
+        """Uma linha com nome e barra de % para cada arquivo em transferência.
+
+        As barras são **reaproveitadas** entre as atualizações: criar e destruir
+        widgets a cada segundo, por horas, faria a janela piscar e vazar memória. Só
+        o valor muda; a linha só nasce quando o arquivo aparece e só morre quando ele
+        termina.
+        """
+        atuais = {nome: pct for nome, pct in baixando}
+
+        for nome in list(self._barras):
+            if nome not in atuais:
+                _rotulo, _barra, linha = self._barras.pop(nome)
+                linha.setParent(None)
+                linha.deleteLater()
+
+        for nome, pct in atuais.items():
+            if nome not in self._barras:
+                linha = QWidget()
+                dentro = QHBoxLayout(linha)
+                dentro.setContentsMargins(0, 2, 0, 2)
+
+                curto = nome if len(nome) <= 52 else nome[:49] + "..."
+                rotulo = QLabel(curto)
+                rotulo.setToolTip(nome)
+                rotulo.setMinimumWidth(340)
+
+                barra = QProgressBar()
+                barra.setRange(0, 100)
+                barra.setFormat("%p%")
+                barra.setMaximumHeight(16)
+
+                dentro.addWidget(rotulo)
+                dentro.addWidget(barra, 1)
+                self.area_baixando.addWidget(linha)
+                self._barras[nome] = (rotulo, barra, linha)
+
+            self._barras[nome][1].setValue(pct)
+
+        self.rotulo_ocioso.setVisible(not self._barras)
 
     @staticmethod
     def _encher(lista: QListWidget, itens: list[str]) -> None:
