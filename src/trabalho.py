@@ -135,7 +135,20 @@ class TarefaDeDownload(QThread):
 
     # ------------------------------------------------------------------ run
 
-    def run(self) -> None:  # noqa: D102 - exigido pelo QThread
+    def run(self) -> None:
+        """Ponto de entrada da thread. **Nada** pode escapar daqui.
+
+        Exceção que sai de `QThread.run()` não vira erro tratável: o Qt só imprime
+        "Error calling Python override of QThread::run()" no terminal e a janela fica
+        com os botões travados, esperando um fim que não vem. Para o usuário, parece
+        que o programa congelou — foi exatamente o que aconteceu.
+        """
+        try:
+            self._correr_tudo()
+        except Exception as erro:  # noqa: BLE001 — último anteparo antes do Qt
+            self.falhou.emit(f"{type(erro).__name__}: {erro}")
+
+    def _correr_tudo(self) -> None:
         andamento = Andamento()
         try:
             nome, faixas = self._ler_entrada()
@@ -241,12 +254,7 @@ class TarefaDeDownload(QThread):
             self._recolher(operario, pendentes, destino, andamento, bloquear=False)
             self.progrediu.emit(andamento)
 
-        try:
-            self._recolher(operario, pendentes, destino, andamento, bloquear=True)
-        except ErroSlskd as erro:
-            # O que ficou pendente aqui nao se perde: segue na lista de presas, e o
-            # slskd retoma esses downloads sozinho quando voltar.
-            andamento.recado = f"o motor caiu no fim: {erro}" 
+        self._recolher(operario, pendentes, destino, andamento, bloquear=True)
 
     def _religar_motor(self, andamento: Andamento) -> bool:
         """Religa o slskd se ele tiver morrido. Devolve se voltou ao ar.
@@ -288,8 +296,39 @@ class TarefaDeDownload(QThread):
             andamento.nao_vieram.append(resultado.resumo())
 
     def _recolher(self, operario, pendentes, destino, andamento, bloquear: bool) -> None:
+        """Move o que terminou para a pasta. **Nunca levanta.**
+
+        A proteção fica aqui dentro, e não em quem chama. Eu tinha protegido duas das
+        três chamadas e esquecido a terceira — a de passagem, dentro do laço — e foi
+        exatamente ela que derrubou a corrida quando o slskd morreu:
+
+            File "trabalho.py", line 213, in _correr
+              self._recolher(..., bloquear=False)
+            ErroSlskd: Não consegui falar com o slskd... Ele está rodando?
+
+        Guardar a função em vez das chamadas também protege a próxima chamada que
+        alguém escrever sem lembrar disso.
+
+        Falhar ao recolher não é motivo para derrubar nada: o que está pendente segue
+        pendente, e o slskd retoma esses downloads sozinho quando voltar.
+        """
         if not pendentes:
             return
+
+        try:
+            self._recolher_mesmo(operario, pendentes, destino, andamento, bloquear)
+        except ErroSlskd as erro:
+            if self._religar_motor(andamento):
+                try:
+                    self._recolher_mesmo(operario, pendentes, destino, andamento, bloquear)
+                except ErroSlskd as outra:
+                    andamento.recado = f"não consegui recolher: {outra}"
+            else:
+                andamento.recado = f"o motor caiu: {erro}"
+        except Exception as erro:  # noqa: BLE001 — papel não derruba corrida
+            andamento.recado = f"não consegui recolher: {type(erro).__name__}: {erro}"
+
+    def _recolher_mesmo(self, operario, pendentes, destino, andamento, bloquear: bool) -> None:
 
         if bloquear:
             for chave in list(pendentes):
