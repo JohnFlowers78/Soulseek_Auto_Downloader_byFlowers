@@ -94,8 +94,39 @@ class Config:
         conhecidas = {campo.name for campo in fields(cls)}
         return cls(**{k: v for k, v in dados.items() if k in conhecidas})
 
+    #: Campos que uma gravação de rotina **nunca** pode esvaziar.
+    #:
+    #: Segredo não se apaga por acidente, e foi o que aconteceu: o refresh token do
+    #: Spotify existia (a playlist foi lida com ele) e sumiu na execução seguinte. Uma
+    #: gravação feita por um processo cujo `Config` em memória estava sem o campo é
+    #: suficiente para zerar o do disco. Apagar um segredo passa a exigir
+    #: `esquecer_segredos()`, que é explícito.
+    SEGREDOS = ("slskd_api_key", "spotify_client_secret", "spotify_refresh_token")
+
     def salvar(self, caminho: Path | None = None) -> Path:
-        """Grava o arquivo, criando a pasta se preciso. Devolve onde gravou."""
+        """Grava o arquivo, criando a pasta se preciso. Devolve onde gravou.
+
+        Um segredo vazio em memória **não** sobrescreve um segredo preenchido no disco.
+        """
+        caminho = caminho or self.caminho_padrao()
+        dados = asdict(self)
+
+        anterior = Config.carregar(caminho)
+        for campo in self.SEGREDOS:
+            if not str(dados.get(campo) or "").strip():
+                guardado = getattr(anterior, campo, "")
+                if guardado:
+                    dados[campo] = guardado
+                    setattr(self, campo, guardado)
+
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        caminho.write_text(json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8")
+        return caminho
+
+    def esquecer_segredos(self, caminho: Path | None = None) -> Path:
+        """Apaga os segredos de verdade — o único caminho que faz isso."""
+        for campo in self.SEGREDOS:
+            setattr(self, campo, "")
         caminho = caminho or self.caminho_padrao()
         caminho.parent.mkdir(parents=True, exist_ok=True)
         caminho.write_text(

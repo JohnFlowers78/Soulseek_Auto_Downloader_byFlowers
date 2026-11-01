@@ -107,6 +107,67 @@ def test_cada_playlist_vira_subpasta_da_mae():
     assert config.pasta_da_playlist("Set de Verão") == Path(r"D:\Musicas\Playlists\Set de Verão")
 
 
+# -------------------------------------------------- segredos não se perdem
+
+
+def test_gravacao_de_rotina_nao_apaga_segredo_guardado(tmp_path):
+    """O refresh token do Spotify sumiu entre duas execuções, e era real.
+
+    Ele existia (a playlist foi lida com ele) e na execução seguinte o campo estava
+    vazio. Basta um processo com o `Config` em memória sem o campo gravar por cima.
+    """
+    caminho = tmp_path / "config.json"
+    Config(spotify_refresh_token="token-bom", slskd_api_key="chave-boa").salvar(caminho)
+
+    # Outro processo, que nunca soube do token, grava alguma outra coisa.
+    desinformado = Config(pasta_mae_playlists="D:/x")
+    desinformado.salvar(caminho)
+
+    lido = Config.carregar(caminho)
+    assert lido.spotify_refresh_token == "token-bom"
+    assert lido.slskd_api_key == "chave-boa"
+    assert lido.pasta_mae_playlists == "D:/x"
+
+
+def test_quem_gravou_tambem_fica_com_o_segredo_em_memoria(tmp_path):
+    # Senão o processo segue achando que não tem token e pede login de novo.
+    caminho = tmp_path / "config.json"
+    Config(spotify_refresh_token="token-bom").salvar(caminho)
+
+    desinformado = Config()
+    desinformado.salvar(caminho)
+    assert desinformado.spotify_refresh_token == "token-bom"
+
+
+def test_segredo_novo_substitui_o_antigo(tmp_path):
+    # A proteção não pode impedir a rotação do token.
+    caminho = tmp_path / "config.json"
+    Config(spotify_refresh_token="antigo").salvar(caminho)
+    Config(spotify_refresh_token="novo").salvar(caminho)
+
+    assert Config.carregar(caminho).spotify_refresh_token == "novo"
+
+
+def test_esquecer_segredos_apaga_de_verdade(tmp_path):
+    # Tem que existir um caminho explícito para sair — senão vira cadeia.
+    caminho = tmp_path / "config.json"
+    config = Config(spotify_refresh_token="token", slskd_api_key="chave")
+    config.salvar(caminho)
+
+    config.esquecer_segredos(caminho)
+
+    lido = Config.carregar(caminho)
+    assert lido.spotify_refresh_token == ""
+    assert lido.slskd_api_key == ""
+
+
+def test_salvar_num_arquivo_novo_nao_quebra(tmp_path):
+    # A proteção lê o arquivo anterior; quando não há, não pode estourar.
+    caminho = tmp_path / "ainda" / "nao" / "existe.json"
+    Config(spotify_refresh_token="t").salvar(caminho)
+    assert Config.carregar(caminho).spotify_refresh_token == "t"
+
+
 # ---------------------------------------------------------------- pendências
 
 
