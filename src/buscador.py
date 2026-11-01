@@ -138,11 +138,6 @@ class Buscador:
 
         return resultado
 
-    #: Variantes que buscam com **menos palavras do título** do que a faixa tem. Só
-    #: nelas o título precisa ser conferido de volta: nas demais a consulta já levou o
-    #: título inteiro, então quem filtrou foi o próprio servidor do Soulseek.
-    ESTRATEGIAS_QUE_ENCURTAM_O_TITULO = ("artista_palavra_chave", "nucleo")
-
     def _peneirar(
         self,
         candidatos: list[Candidato],
@@ -153,13 +148,19 @@ class Buscador:
         if not self.conferir_nomes:
             return candidatos
 
-        conferir_titulo = variante.estrategia in self.ESTRATEGIAS_QUE_ENCURTAM_O_TITULO
+        # O título é conferido em TODAS as variantes, inclusive na `fiel`.
+        #
+        # Eu só conferia nas variantes que encurtam o título, supondo que a consulta
+        # fiel levava o título inteiro e o servidor do Soulseek filtrava direito. Com
+        # título de palavras curtas isso não vale: buscando *Jansons — U Do* pela
+        # variante fiel, o app baixou uma sinfonia de Beethoven regida por Mariss
+        # Jansons. "U" e "Do" não filtram nada do lado de lá.
         sobreviventes = []
         for candidato in candidatos:
             if faixa.artista and not artista_aparece_em(candidato.caminho, faixa.artista):
                 resultado.de_outro_artista.append(candidato)
                 continue
-            if conferir_titulo and not titulo_aparece_em(candidato.nome_arquivo, faixa.titulo):
+            if not titulo_aparece_em(candidato.nome_arquivo, faixa.titulo):
                 resultado.de_outra_musica.append(candidato)
                 continue
             sobreviventes.append(candidato)

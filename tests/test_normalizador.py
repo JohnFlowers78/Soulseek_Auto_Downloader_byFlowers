@@ -395,6 +395,37 @@ def test_titulo_vazio_nao_reprova_nada():
     assert titulo_aparece_em("qualquer coisa.flac", "")
 
 
+# O caso real mais caro: pedindo "Jansons — U Do" (house), o app baixou uma sinfonia
+# de Beethoven regida por Mariss JANSONS. O artista batia; "U" tem uma letra e "Do" é
+# palavra vazia, então o título não tinha o que exigir e aprovava tudo.
+BEETHOVEN = (
+    "133. Ludwig van Beethoven, Bavarian Radio Symphony Orchestra, Mariss Jansons - "
+    "Symphony No. 6 in F Major, Op. 68 Pastoral I. Erwachen heiterer Empfindungen.flac"
+)
+
+
+def test_titulo_de_palavras_curtas_ainda_assim_filtra():
+    assert not titulo_aparece_em(BEETHOVEN, "U Do")
+    assert not titulo_aparece_em("08 - No. 6, Dante.mp3", "U Do")
+
+
+def test_o_arquivo_certo_de_titulo_curto_continua_passando():
+    assert titulo_aparece_em("Jansons - U Do.flac", "U Do")
+    assert titulo_aparece_em("01. Jansons - U Do (Original Mix).wav", "U Do")
+
+
+@pytest.mark.parametrize(
+    "nome, titulo, esperado",
+    [
+        ("Djavan - Se.flac", "Se", True),
+        ("Djavan - Flor de Lis.flac", "Se", False),
+        ("Tim Maia - Eu Amo Voce.flac", "Eu", True),
+    ],
+)
+def test_titulos_de_uma_palavra_curta(nome, titulo, esperado):
+    assert titulo_aparece_em(nome, titulo) is esperado
+
+
 # ------------------------------------------------ proximidade do título
 
 # Caso real: pedindo "Djavan — Flor de Lis" vieram os dois abaixo. Os DOIS contêm o

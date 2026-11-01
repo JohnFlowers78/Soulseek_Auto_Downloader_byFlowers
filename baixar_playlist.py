@@ -145,6 +145,17 @@ def main(argumentos: list[str]) -> int:
         print(f'   .\\.venv\\Scripts\\python.exe diagnostico_spotify.py "{links[0]}"')
         return 1
 
+    sem_duracao = [f for f in faixas if not f.duracao_s]
+    if sem_duracao:
+        # A duração é o filtro que separa a faixa certa de um remix, de uma versão ao
+        # vivo ou de uma sinfonia homônima. Sem ela o app fica muito mais crédulo, e o
+        # usuário precisa saber disso ANTES de aceitar o que vier.
+        print(
+            f"\n⚠ {len(sem_duracao)} de {len(faixas)} faixa(s) vieram do Spotify SEM "
+            "duração.\n  Sem ela, o filtro que compara o tamanho da gravação fica "
+            "desligado para essas —\n  e versões erradas de mesmo nome passam mais fácil."
+        )
+
     print(f"\n📋 {nome} — {len(faixas)} faixa(s)\n")
     for i, faixa in enumerate(faixas[:10], 1):
         print(f"   {i:3d}. {faixa}")

@@ -13,11 +13,28 @@ FAIXA = Faixa(artista="Djavan", titulo="Não Vou Ficar", duracao_s=250.0)
 
 
 def arquivo(nome="a.flac", usuario="joao", **ajustes) -> Candidato:
-    # O caminho traz "Djavan" porque a conferência de artista (testada mais abaixo)
-    # reprova o que não bate — e aqui o assunto é outro.
+    """Um candidato que **combina** com FAIXA, para o assunto do teste ser outro.
+
+    O caminho traz "Djavan" e o nome traz "Nao Vou Ficar" porque as conferências de
+    artista e de título (testadas em seção própria) reprovam o que não bate. Sem isso,
+    todo teste daqui estaria medindo a peneira em vez do que pretende medir.
+    """
+    raiz, ponto, extensao = nome.rpartition(".")
+    if ponto:
+        nome = f"{raiz} - Djavan - Nao Vou Ficar.{extensao}"
+
+    return arquivo_literal(nome, usuario, **ajustes)
+
+
+def arquivo_literal(nome, usuario="joao", pasta="Djavan", **ajustes) -> Candidato:
+    """Um candidato com o nome **exatamente** como escrito — sem ajudar a passar.
+
+    É o que os testes das peneiras precisam: nome de outra música, pasta de outro
+    artista, o que for. O `arquivo()` acima existe para o caso oposto.
+    """
     padrao = dict(
         usuario=usuario,
-        caminho=rf"@@abc\Music\Djavan\{nome}",
+        caminho=rf"@@abc\Music\{pasta}\{nome}",
         tamanho_bytes=30_000_000,
         duracao_s=250.0,
         slot_livre=True,
@@ -145,7 +162,7 @@ def test_faixa_com_duracao_filtra_versao_errada():
 
 
 def de_outro(nome, pasta, usuario="outro") -> Candidato:
-    return arquivo(nome, usuario, caminho=rf"@@abc\musica\{pasta}\{nome}")
+    return arquivo_literal(nome, usuario, pasta=pasta)
 
 
 def test_nao_baixa_a_musica_certa_do_artista_errado():
@@ -177,8 +194,8 @@ def test_a_conferencia_nao_impede_de_tentar_a_proxima_variante():
     # Se tudo que veio é de outro artista, a busca continua: outra grafia pode achar.
     cliente = ClienteFalso(
         por_consulta={
-            "Djavan Não Vou Ficar": [de_outro("x.flac", "Kid Abelha")],
-            "Djavan Nao Vou Ficar": [de_outro("y.flac", "Djavan")],
+            "Djavan Não Vou Ficar": [de_outro("Nao Vou Ficar.flac", "Kid Abelha")],
+            "Djavan Nao Vou Ficar": [de_outro("Nao Vou Ficar.flac", "Djavan")],
         }
     )
     resultado = Buscador(cliente).buscar_faixa(FAIXA)
@@ -201,7 +218,7 @@ def test_nao_baixa_outra_musica_do_artista_certo():
     A variante `artista_palavra_chave` encurta o título a uma ou duas palavras. O
     artista bate, e sem conferir o título o app baixa a faixa errada do cantor certo.
     """
-    outra = arquivo("04 - Tenho medo de ficar só.flac", "nas")
+    outra = arquivo_literal("04 - Tenho medo de ficar só.flac", "nas")
     cliente = ClienteFalso(por_consulta={"Djavan ficar": [outra]})
     resultado = Buscador(cliente).buscar_faixa(FAIXA)
 
@@ -210,19 +227,31 @@ def test_nao_baixa_outra_musica_do_artista_certo():
     assert resultado.de_outro_artista == []
 
 
-def test_a_variante_fiel_nao_sofre_conferencia_de_titulo():
-    # Nela a consulta já levou o título inteiro — quem filtrou foi o servidor do
-    # Soulseek. Conferir de novo só reprovaria arquivo com nome abreviado.
-    curto = arquivo("NaoVouFicar.flac")
-    cliente = ClienteFalso(por_consulta={"Djavan Não Vou Ficar": [curto]})
-    resultado = Buscador(cliente).buscar_faixa(FAIXA)
+def test_a_variante_fiel_TAMBEM_sofre_conferencia_de_titulo():
+    """Eu supunha que a consulta fiel dispensava a conferência. Supunha errado.
 
-    assert resultado.achou
+    Pedindo *Jansons — U Do* pela variante fiel, o servidor do Soulseek devolveu uma
+    sinfonia de Beethoven regida por Mariss Jansons: o artista batia, e "U" e "Do"
+    não filtram nada do lado de lá. Conferir só nas variantes curtas deixava esse
+    buraco escancarado na variante mais usada de todas.
+    """
+    faixa = Faixa(artista="Jansons", titulo="U Do", duracao_s=360.0)
+    beethoven = Candidato(
+        usuario="classico",
+        caminho=r"@@x\Classica\133. Ludwig van Beethoven, Mariss Jansons - Symphony No. 6.flac",
+        tamanho_bytes=30_000_000,
+        duracao_s=360.0,
+    )
+    cliente = ClienteFalso(por_consulta={"Jansons U Do": [beethoven]})
+    resultado = Buscador(cliente).buscar_faixa(faixa)
+
+    assert not resultado.achou
+    assert len(resultado.de_outra_musica) == 1
 
 
 def test_o_resumo_distingue_outra_musica_de_outro_artista():
     cliente = ClienteFalso(
-        por_consulta={"Djavan ficar": [arquivo("Tenho medo de ficar só.flac")]}
+        por_consulta={"Djavan ficar": [arquivo_literal("Tenho medo de ficar só.flac")]}
     )
     assert "de outra música" in Buscador(cliente).buscar_faixa(FAIXA).resumo()
 
@@ -230,17 +259,19 @@ def test_o_resumo_distingue_outra_musica_de_outro_artista():
 def test_da_para_desligar_a_conferencia():
     # Fica configurável porque acervo mal catalogado (sem pasta de artista) seria
     # reprovado por inteiro — e aí o usuário decide o que prefere.
-    cliente = ClienteFalso(padrao=[de_outro("x.flac", "Kid Abelha")])
+    cliente = ClienteFalso(padrao=[de_outro("Nao Vou Ficar.flac", "Kid Abelha")])
     resultado = Buscador(cliente, conferir_nomes=False).buscar_faixa(FAIXA)
 
     assert resultado.achou
 
 
-def test_faixa_sem_artista_nao_sofre_conferencia():
-    cliente = ClienteFalso(padrao=[de_outro("x.flac", "Qualquer Um")])
+def test_faixa_sem_artista_nao_sofre_conferencia_de_artista():
+    # Sem artista informado nao ha o que conferir — mas o TITULO continua valendo.
+    cliente = ClienteFalso(padrao=[de_outro("Nao Vou Ficar.flac", "Qualquer Um")])
     resultado = Buscador(cliente).buscar_faixa(Faixa(artista="", titulo="Não Vou Ficar"))
 
     assert resultado.achou
+    assert resultado.de_outro_artista == []
 
 
 def test_entre_dois_aprovados_o_nome_mais_limpo_vem_primeiro():
@@ -250,8 +281,8 @@ def test_entre_dois_aprovados_o_nome_mais_limpo_vem_primeiro():
     igual, probabilidade bem diferente.
     """
     faixa = Faixa(artista="Djavan", titulo="Flor de Lis", duracao_s=250.0)
-    medley = arquivo("08_Limão  Avião  Flor De Lis - Ao Vivo.flac", "revco")
-    limpo = arquivo("13 Flor de Lis.flac", "eduardo")
+    medley = arquivo_literal("08_Limão  Avião  Flor De Lis - Ao Vivo.flac", "revco")
+    limpo = arquivo_literal("13 Flor de Lis.flac", "eduardo")
 
     cliente = ClienteFalso(padrao=[medley, limpo])
     resultado = Buscador(cliente).buscar_faixa(faixa)
@@ -262,8 +293,8 @@ def test_entre_dois_aprovados_o_nome_mais_limpo_vem_primeiro():
 def test_a_proximidade_nao_passa_na_frente_da_qualidade():
     # 30 pontos desempatam entre iguais; não fazem um MP3 ganhar de um FLAC.
     faixa = Faixa(artista="Djavan", titulo="Flor de Lis", duracao_s=250.0)
-    mp3_limpo = arquivo("Flor de Lis.mp3", "a", bitrate_kbps=320)
-    flac_sujo = arquivo("08_Limão Avião Flor De Lis Ao Vivo.flac", "b")
+    mp3_limpo = arquivo_literal("Flor de Lis.mp3", "a", bitrate_kbps=320)
+    flac_sujo = arquivo_literal("08_Limão Avião Flor De Lis Ao Vivo.flac", "b")
 
     resultado = Buscador(ClienteFalso(padrao=[mp3_limpo, flac_sujo])).buscar_faixa(faixa)
 
@@ -300,7 +331,12 @@ def test_busca_uma_lista_inteira():
     # laço, não o filtro de duração (que tem teste próprio logo acima).
     # Ambas do mesmo artista do candidato falso, senão a conferência de artista
     # reprova a segunda — e ela tem testes próprios logo acima.
-    cliente = ClienteFalso(padrao=[arquivo()])
+    cliente = ClienteFalso(
+        por_consulta={
+            "Djavan Não Vou Ficar": [arquivo_literal("Djavan - Nao Vou Ficar.flac")],
+            "Djavan Flor de Lis": [arquivo_literal("Djavan - Flor de Lis.flac")],
+        }
+    )
     faixas = [FAIXA, Faixa(artista="Djavan", titulo="Flor de Lis", duracao_s=250.0)]
     resultados = Buscador(cliente).buscar_varias(faixas)
 

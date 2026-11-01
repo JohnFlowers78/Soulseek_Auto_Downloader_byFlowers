@@ -210,6 +210,16 @@ def titulo_aparece_em(nome_arquivo: str, titulo: str) -> bool:
     """
     nucleo = sem_parenteses(sem_participacao(titulo or ""))
     palavras_do_titulo = palavras_uteis(nucleo)
+
+    if not palavras_do_titulo:
+        # Título feito só de palavras curtas ou vazias — "U Do", "Se", "Eu". Sem isto
+        # a função não tinha o que exigir e aprovava tudo: buscando *Jansons — U Do*
+        # o app baixou uma sinfonia de Beethoven regida por Mariss **Jansons**, porque
+        # o artista batia e o título não barrava nada.
+        #
+        # Nesse caso valem TODAS as palavras, inclusive as curtas: "u" e "do" não
+        # aparecem como palavra inteira no nome da sinfonia, e é o que basta.
+        palavras_do_titulo = sem_pontuacao(sem_acentos(nucleo)).casefold().split()
     if not palavras_do_titulo:
         return True
 

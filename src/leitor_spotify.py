@@ -331,15 +331,34 @@ def faixa_do_item(item: dict) -> Faixa | None:
         return None
 
     artistas = [a.get("name", "").strip() for a in faixa.get("artists") or []]
-    duracao_ms = faixa.get("duration_ms")
 
     return Faixa(
         artista=", ".join(a for a in artistas if a),
         titulo=titulo,
         album=((faixa.get("album") or {}).get("name") or "").strip(),
-        duracao_s=duracao_ms / 1000 if duracao_ms else None,
+        duracao_s=_duracao_em_segundos(faixa),
         isrc=((faixa.get("external_ids") or {}).get("isrc") or "").strip(),
     )
+
+
+def _duracao_em_segundos(faixa: dict) -> float | None:
+    """A duração da faixa, aceitando os nomes de campo que a API já usou.
+
+    Sem duração, o filtro que compara o tamanho da gravação fica **desligado** — e é
+    ele que separa a faixa certa de um remix, de uma versão ao vivo ou de uma
+    sinfonia de doze minutos com o mesmo nome no caminho. Vale tentar mais de um nome
+    antes de desistir dela.
+    """
+    for chave in ("duration_ms", "durationMs"):
+        valor = faixa.get(chave)
+        if isinstance(valor, (int, float)) and valor > 0:
+            return valor / 1000
+    valor = faixa.get("duration")
+    if isinstance(valor, (int, float)) and valor > 0:
+        # Alguns formatos trazem segundos aqui; acima de 1000 só pode ser milissegundo
+        # (nenhuma faixa de música tem 16 minutos por acidente de unidade).
+        return valor / 1000 if valor > 1000 else float(valor)
+    return None
 
 
 def acesso_a_partir_do_refresh(
