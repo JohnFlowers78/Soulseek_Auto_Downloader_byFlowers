@@ -12,6 +12,7 @@ Precisa de `python entrar_spotify.py` uma vez antes.
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -47,12 +48,14 @@ def _tempo_legivel(segundos: float) -> str:
     return f"{minutos // 60}h{minutos % 60:02d}"
 
 
-def _relatorio(
+def _montar_relatorio(
+    nome_playlist: str,
     resultados: list[ResultadoDaBusca],
     lotes: dict,
     destino: Path,
     falhas: list[tuple] | None = None,
-) -> None:
+) -> list[str]:
+    """Monta o relatório como linhas, para ser impresso **e** gravado."""
     baixadas, presas, nao_vieram = [], [], []
     for resultado in resultados:
         lote = lotes.get(id(resultado))
@@ -63,25 +66,30 @@ def _relatorio(
         else:
             nao_vieram.append(resultado)
 
-    print("\n" + "=" * 70)
-    print(f"PLAYLIST TERMINADA — {destino}")
-    print("=" * 70)
-
-    print(f"\n✅ BAIXADAS ({len(baixadas)})")
+    linhas = [
+        "=" * 70,
+        f"PLAYLIST TERMINADA — {nome_playlist}",
+        f"{datetime.now():%d/%m/%Y %H:%M:%S}",
+        f"pasta: {destino}",
+        "=" * 70,
+        "",
+        f"✅ BAIXADAS ({len(baixadas)})",
+    ]
     for resultado, lote in baixadas:
-        print(f"   {resultado.faixa}")
+        linhas.append(f"   {resultado.faixa}")
         for transferencia in lote.concluidas:
-            print(f"      · {Path(transferencia.caminho_local).name or transferencia.candidato.nome_arquivo}")
+            nome = Path(transferencia.caminho_local).name or transferencia.candidato.nome_arquivo
+            linhas.append(f"      · {nome}")
 
     if presas:
-        print(f"\n⏳ PRESAS NA FILA ({len(presas)}) — usuário offline ou fila comprida")
+        linhas += ["", f"⏳ PRESAS NA FILA ({len(presas)}) — usuário offline ou fila comprida"]
         for resultado, lote in presas:
             posicoes = [str(t.posicao_fila) for t in lote.presas if t.posicao_fila]
             onde = f" (posição {', '.join(posicoes)})" if posicoes else ""
-            print(f"   {resultado.faixa}{onde}")
+            linhas.append(f"   {resultado.faixa}{onde}")
 
     if nao_vieram:
-        print(f"\n❌ NÃO ENCONTRADAS ({len(nao_vieram)})")
+        linhas += ["", f"❌ NÃO ENCONTRADAS ({len(nao_vieram)})"]
         for resultado in nao_vieram:
             detalhe = ""
             if resultado.de_outro_artista:
@@ -90,15 +98,44 @@ def _relatorio(
                 detalhe = f" — {len(resultado.de_outra_musica)} de outra música do artista"
             elif resultado.descartados:
                 detalhe = f" — {len(resultado.descartados)} achados, nenhum passou no filtro"
-            print(f"   {resultado.faixa}{detalhe}")
+            linhas.append(f"   {resultado.faixa}{detalhe}")
 
     if falhas:
-        print(f"\n💥 DERAM ERRO ({len(falhas)}) — dá para tentar estas de novo depois")
+        linhas += ["", f"💥 DERAM ERRO ({len(falhas)}) — dá para tentar estas de novo depois"]
         for faixa, motivo in falhas:
-            print(f"   {faixa}")
-            print(f"      {motivo}")
+            linhas += [f"   {faixa}", f"      {motivo}"]
+
+    return linhas
+
+
+def _relatorio(
+    nome_playlist: str,
+    resultados: list[ResultadoDaBusca],
+    lotes: dict,
+    destino: Path,
+    falhas: list[tuple] | None = None,
+) -> None:
+    """Imprime o relatório **e grava ao lado das músicas**.
+
+    Gravar importa mais do que parece numa corrida longa: playlist grande roda por
+    horas, e o histórico do terminal rola, a janela fecha, a máquina reinicia. De
+    manhã, o arquivo é o que sobra para saber o que faltou.
+    """
+    linhas = _montar_relatorio(nome_playlist, resultados, lotes, destino, falhas)
 
     print()
+    for linha in linhas:
+        print(linha)
+    print()
+
+    try:
+        destino.mkdir(parents=True, exist_ok=True)
+        arquivo = destino / "_relatorio.txt"
+        arquivo.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+        print(f"📄 Relatório gravado em:\n   {arquivo}\n")
+    except OSError as erro:
+        # Não gravar o relatório não pode estragar uma corrida que deu certo.
+        print(f"(não consegui gravar o relatório: {erro})\n")
 
 
 def main(argumentos: list[str]) -> int:
@@ -208,7 +245,7 @@ def main(argumentos: list[str]) -> int:
             falhas.append((faixa, f"{type(erro).__name__}: {erro}"))
             print(f"   💥 falhou: {erro}")
 
-    _relatorio(resultados, lotes, destino, falhas)
+    _relatorio(nome, resultados, lotes, destino, falhas)
     return 0
 
 
