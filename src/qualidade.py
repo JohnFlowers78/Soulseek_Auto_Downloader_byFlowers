@@ -53,6 +53,15 @@ class Criterios:
     #: Abaixo disso é arquivo quebrado, capa de álbum ou pedaço de download.
     tamanho_minimo_bytes: int = 200_000
 
+    #: Fila do outro usuário acima disso: nem tenta.
+    #:
+    #: Não é só impaciência. O slskd desiste de entrar numa fila remota depois de 180
+    #: segundos — e foi **nesse caminho de desistência** que ele quebrou com uma exceção
+    #: fatal e levou o processo inteiro junto, no meio de uma playlist. Fila de 677
+    #: pessoas (número real, visto na rede) não anda nesse tempo. Evitar essas fontes
+    #: tira a corrida do caminho do defeito, e de quebra ela anda mais rápido.
+    fila_maxima: int = 300
+
     #: Preferência entre os sem-perda. FLAC na frente porque é o mesmo áudio ocupando
     #: menos e — diferente de WAV e AIFF — carrega as tags direito.
     preferencia_sem_perda: tuple[str, ...] = ("flac", "aiff", "aif", "wav")
@@ -154,6 +163,14 @@ def avaliar(
 
     if candidato.tamanho_bytes < criterios.tamanho_minimo_bytes:
         return Avaliacao(candidato, False, f"arquivo pequeno demais ({candidato.tamanho_bytes} bytes)")
+
+    if candidato.posicao_fila and candidato.posicao_fila > criterios.fila_maxima:
+        return Avaliacao(
+            candidato,
+            False,
+            f"fila do usuário comprida demais ({candidato.posicao_fila}) — "
+            "não entra nela a tempo",
+        )
 
     aceitos = (*criterios.formatos_sem_perda, *criterios.formatos_com_perda)
     if extensao not in aceitos:

@@ -264,6 +264,36 @@ def test_nome_comprido_e_encurtado_mas_o_inteiro_fica_na_dica(app, config):
     assert rotulo.toolTip() == comprido
 
 
+def test_a_playlist_inteira_aparece_antes_de_comecar(app, config):
+    """O usuário reclamou: "não exibiu toda a lista de músicas que precisava baixar".
+
+    Tinha razão — a janela só dizia qual faixa estava na vez.
+    """
+    j = janela(app, config)
+    j._leu_a_playlist("Minha Lista", ["A — 1", "B — 2", "C — 3"])
+
+    assert j.lista_afazer.count() == 3
+    assert "(3)" in j.abas.tabText(0)
+    assert "Minha Lista" in j.statusBar().currentMessage()
+
+
+def test_o_que_ja_passou_sai_da_lista_a_fazer(app, config):
+    j = janela(app, config)
+    j._leu_a_playlist("L", ["A", "B", "C", "D"])
+    j._andou(Andamento(indice=2, total=4, faixa="B"))
+
+    # Sobra o que ainda falta — é a pergunta que o usuário faz olhando a tela.
+    assert j.lista_afazer.count() == 2
+
+
+def test_a_lista_a_fazer_esvazia_no_fim(app, config):
+    j = janela(app, config)
+    j._leu_a_playlist("L", ["A", "B"])
+    j._andou(Andamento(indice=2, total=2, faixa="B"))
+
+    assert j.lista_afazer.count() == 0
+
+
 def test_a_faixa_atual_aparece_com_a_posicao(app, config):
     j = janela(app, config)
     j._andou(Andamento(indice=7, total=14, faixa="Tim Maia — Você"))

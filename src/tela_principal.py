@@ -139,6 +139,7 @@ class JanelaPrincipal(QMainWindow):
         self._barras: dict[str, tuple[QLabel, QProgressBar, QWidget]] = {}
 
         listas = QHBoxLayout()
+        self.lista_afazer = self._lista("📋 A fazer", listas)
         self.lista_baixadas = self._lista("✅ Baixadas", listas)
         self.lista_presas = self._lista("⏳ Presas na fila", listas)
         self.lista_faltaram = self._lista("❌ Não vieram", listas)
@@ -252,7 +253,12 @@ class JanelaPrincipal(QMainWindow):
             QMessageBox.information(self, "Falta uma coisa", impedimento)
             return
 
-        for lista in (self.lista_baixadas, self.lista_presas, self.lista_faltaram):
+        for lista in (
+            self.lista_afazer,
+            self.lista_baixadas,
+            self.lista_presas,
+            self.lista_faltaram,
+        ):
             lista.clear()
         self.barra.setValue(0)
 
@@ -261,7 +267,9 @@ class JanelaPrincipal(QMainWindow):
             self.config,
             self.campo_entrada.text(),
             Foco(self.escolha_foco.currentData()),
+            motor=self.motor,
         )
+        self.tarefa.playlist_lida.connect(self._leu_a_playlist)
         self.tarefa.progrediu.connect(self._andou)
         self.tarefa.terminou.connect(self._acabou)
         self.tarefa.falhou.connect(self._deu_errado)
@@ -282,6 +290,9 @@ class JanelaPrincipal(QMainWindow):
         self.rotulo_faixa.setText(
             f"[{andamento.indice}/{andamento.total}] {andamento.faixa}"
         )
+        # A faixa da vez sai da lista "a fazer": o que sobra ali e o que falta.
+        while self.lista_afazer.count() > max(0, andamento.total - andamento.indice):
+            self.lista_afazer.takeItem(0)
         self._desenhar_barras(andamento.baixando)
         self._encher(self.lista_baixadas, andamento.baixadas)
         self._encher(self.lista_presas, andamento.presas)
@@ -289,6 +300,17 @@ class JanelaPrincipal(QMainWindow):
         self.statusBar().showMessage(
             f"{len(andamento.baixadas)} baixada(s) · {andamento.porcentagem}%"
         )
+
+    def _leu_a_playlist(self, nome: str, faixas: list) -> None:
+        """Mostra a lista inteira ANTES de comecar.
+
+        Ate aqui a janela so dizia qual faixa estava na vez — o usuario nao via o que
+        o app ia fazer, nem quantas faltavam de verdade.
+        """
+        self.lista_afazer.clear()
+        self.lista_afazer.addItems(faixas)
+        self.abas.setTabText(0, f"🎵 Baixar ({len(faixas)})")
+        self.statusBar().showMessage(f"{nome} — {len(faixas)} faixa(s)")
 
     def _desenhar_barras(self, baixando: list) -> None:
         """Uma linha com nome e barra de % para cada arquivo em transferência.

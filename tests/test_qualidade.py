@@ -104,6 +104,31 @@ def test_arquivo_sem_extensao_e_barrado_sem_explodir():
     assert "sem extensão" in avaliacao.motivo
 
 
+def test_fila_comprida_demais_e_barrada():
+    """Não é impaciência: é desvio de um defeito do slskd.
+
+    Ele desiste de entrar numa fila remota depois de 180 s — e foi nesse caminho de
+    desistência que quebrou com exceção fatal, levando o processo inteiro junto no
+    meio de uma playlist. Fila de 677 (número real da rede) não anda nesse tempo.
+    """
+    avaliacao = avaliar(candidato(posicao_fila=677))
+    assert not avaliacao.aceito
+    assert "fila do usuário comprida demais" in avaliacao.motivo
+
+
+def test_fila_curta_passa():
+    assert avaliar(candidato(posicao_fila=10)).aceito
+
+
+def test_sem_informacao_de_fila_nao_reprova():
+    assert avaliar(candidato(posicao_fila=None)).aceito
+
+
+def test_o_teto_da_fila_e_configuravel():
+    apertado = Criterios(fila_maxima=5)
+    assert not avaliar(candidato(posicao_fila=10), criterios=apertado).aceito
+
+
 def test_arquivo_pequeno_demais_e_barrado():
     # Capa de álbum, pedaço de download, arquivo quebrado.
     avaliacao = avaliar(candidato(tamanho_bytes=50_000))

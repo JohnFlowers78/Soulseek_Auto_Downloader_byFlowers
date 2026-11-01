@@ -103,16 +103,30 @@ class TarefaDeEntrada(QThread):
 class TarefaDeDownload(QThread):
     """Baixa uma playlist inteira, ou uma faixa só, avisando a tela a cada passo."""
 
-    progrediu = Signal(object)        # Andamento
-    terminou = Signal(object, str)    # Andamento, pasta de destino
+    #: Assim que a playlist e lida, ANTES de comecar a baixar. O usuario precisa ver
+    #: o que vai ser feito; ate aqui a janela so mostrava a faixa da vez.
+    playlist_lida = Signal(str, list)  # nome, [texto de cada faixa]
+    progrediu = Signal(object)         # Andamento
+    terminou = Signal(object, str)     # Andamento, pasta de destino
     falhou = Signal(str)
 
-    def __init__(self, config: Config, entrada: str, foco: Foco, avulsa: bool = False):
+    def __init__(
+        self,
+        config: Config,
+        entrada: str,
+        foco: Foco,
+        avulsa: bool = False,
+        motor=None,
+    ):
         super().__init__()
         self.config = config
         self.entrada = entrada.strip()
         self.foco = foco
         self.avulsa = avulsa
+        #: Dono do processo do slskd. Com ele, a tarefa religa o motor quando ele
+        #: morre em vez de perder a corrida. Sem ele, so sabe avisar.
+        self.motor = motor
+        self.religadas = 0
         self._parar = False
 
     def pedir_para_parar(self) -> None:
@@ -137,6 +151,7 @@ class TarefaDeDownload(QThread):
             return
 
         andamento.total = len(faixas)
+        self.playlist_lida.emit(nome, [str(f) for f in faixas])
         destino = Path(self.config.pasta_mae_playlists) / nome_pasta_segura(nome)
 
         with ClienteSlskd(
@@ -206,6 +221,19 @@ class TarefaDeDownload(QThread):
             try:
                 resultado = self._uma_faixa(faixa, buscador, operario, pendentes)
                 self._anotar(andamento, resultado)
+            except ErroSlskd as erro:
+                # O slskd morre sozinho de vez em quando: ele tem um defeito conhecido
+                # no caminho de desistir de entrar numa fila remota (exceção fatal que
+                # leva o processo junto). Quando isso acontece, religar e seguir é
+                # muito melhor que perder uma corrida de horas.
+                if self._religar_motor(andamento):
+                    try:
+                        resultado = self._uma_faixa(faixa, buscador, operario, pendentes)
+                        self._anotar(andamento, resultado)
+                    except Exception as outra:  # noqa: BLE001
+                        andamento.erros.append(f"{faixa} — {type(outra).__name__}: {outra}")
+                else:
+                    andamento.erros.append(f"{faixa} — {erro}")
             except Exception as erro:  # noqa: BLE001 — uma faixa não derruba a corrida
                 andamento.erros.append(f"{faixa} — {type(erro).__name__}: {erro}")
 
@@ -213,7 +241,38 @@ class TarefaDeDownload(QThread):
             self._recolher(operario, pendentes, destino, andamento, bloquear=False)
             self.progrediu.emit(andamento)
 
-        self._recolher(operario, pendentes, destino, andamento, bloquear=True)
+        try:
+            self._recolher(operario, pendentes, destino, andamento, bloquear=True)
+        except ErroSlskd as erro:
+            # O que ficou pendente aqui nao se perde: segue na lista de presas, e o
+            # slskd retoma esses downloads sozinho quando voltar.
+            andamento.recado = f"o motor caiu no fim: {erro}" 
+
+    def _religar_motor(self, andamento: Andamento) -> bool:
+        """Religa o slskd se ele tiver morrido. Devolve se voltou ao ar.
+
+        O slskd 0.26.2 tem um defeito que derruba o processo inteiro: ao desistir de
+        entrar numa fila remota depois de 180 segundos, ele cancela um token já
+        descartado e isso sobe como exceção fatal. Não é o nosso código, e não há
+        versão nova que conserte — então o jeito é levantar e continuar.
+        """
+        from motor import porta_atende
+
+        if porta_atende():
+            return True  # não era o motor; o erro veio de outra coisa
+        if self.motor is None:
+            andamento.recado = "o motor caiu e não tenho como religá-lo daqui"
+            return False
+
+        self.religadas += 1
+        andamento.recado = f"o motor caiu — religando ({self.religadas}ª vez)..."
+        self.progrediu.emit(andamento)
+
+        self.motor.ligar()
+        voltou = self.motor.esperar_atender(espera_max_s=180).atende
+        andamento.recado = "motor de volta" if voltou else "não consegui religar o motor"
+        self.progrediu.emit(andamento)
+        return voltou
 
     def _uma_faixa(self, faixa, buscador, operario, pendentes) -> ResultadoDaBusca:
         resultado = buscador.buscar_faixa(faixa)
