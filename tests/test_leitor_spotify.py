@@ -211,6 +211,73 @@ def test_itens_invalidos_nao_entram_na_lista():
     assert len(LeitorSpotify("t", HttpFalso(paginas)).faixas_da_playlist(ID)) == 1
 
 
+# -------------------------------------- qual endereço de faixas funciona
+#
+# Eu tinha cravado `/items` a partir de uma leitura de que `/tracks` fora aposentado.
+# Ao vivo, `/items` respondeu 200 e trouxe ZERO faixa numa playlist com 14 — enquanto
+# o nome da playlist vinha certo. Em vez de trocar um palpite por outro, o código
+# tenta os dois.
+
+
+class HttpPorEndereco:
+    """Responde conforme o trecho do endereço, para simular um dos dois funcionando."""
+
+    def __init__(self, com_faixas: str, vazio_em: tuple[str, ...] = ()):
+        self.com_faixas = com_faixas
+        self.vazio_em = vazio_em
+        self.urls: list[str] = []
+
+    def __call__(self, metodo, url, cabecalhos, corpo=None):
+        self.urls.append(url)
+        if "fields=name" in url:
+            return {"name": "Minha Playlist"}
+        if f"/{self.com_faixas}?" in url:
+            return {"items": [item()], "next": None}
+        if any(f"/{t}?" in url for t in self.vazio_em):
+            return {"items": [], "next": None}
+        raise ErroSpotify("endereço não existe")
+
+
+def test_usa_tracks_quando_tracks_funciona():
+    http = HttpPorEndereco(com_faixas="tracks")
+    leitor = LeitorSpotify("t", http)
+
+    assert len(leitor.faixas_da_playlist(ID)) == 1
+    assert leitor.caminho_que_funcionou == "tracks"
+
+
+def test_cai_para_items_quando_tracks_vem_vazio():
+    # O caso inverso do que aconteceu ao vivo — o código tem que aguentar os dois.
+    http = HttpPorEndereco(com_faixas="items", vazio_em=("tracks",))
+    leitor = LeitorSpotify("t", http)
+
+    assert len(leitor.faixas_da_playlist(ID)) == 1
+    assert leitor.caminho_que_funcionou == "items"
+
+
+def test_cai_para_items_quando_tracks_da_erro():
+    http = HttpPorEndereco(com_faixas="items")  # /tracks levanta ErroSpotify
+    leitor = LeitorSpotify("t", http)
+
+    assert len(leitor.faixas_da_playlist(ID)) == 1
+    assert leitor.caminho_que_funcionou == "items"
+
+
+def test_playlist_vazia_de_verdade_devolve_lista_vazia():
+    http = HttpPorEndereco(com_faixas="nenhum", vazio_em=("tracks", "items"))
+    leitor = LeitorSpotify("t", http)
+
+    assert leitor.faixas_da_playlist(ID) == []
+    assert leitor.caminho_que_funcionou == ""
+
+
+def test_nao_gasta_a_segunda_chamada_quando_a_primeira_resolve():
+    http = HttpPorEndereco(com_faixas="tracks")
+    LeitorSpotify("t", http).faixas_da_playlist(ID)
+
+    assert not any("/items" in u for u in http.urls)
+
+
 def test_ler_devolve_nome_e_faixas():
     paginas = [{"items": [item()], "next": None}]
     nome, faixas = LeitorSpotify("t", HttpFalso(paginas, "Set de Verão")).ler(

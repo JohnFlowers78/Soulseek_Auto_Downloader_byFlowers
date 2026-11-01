@@ -327,6 +327,9 @@ class LeitorSpotify:
     def __init__(self, token_de_acesso: str, http: Callable[..., Any] = _http):
         self.token = token_de_acesso
         self._http = http
+        #: Qual endereço de faixas respondeu — útil no diagnóstico e para saber quando
+        #: dá para parar de tentar os dois.
+        self.caminho_que_funcionou = ""
 
     def _get(self, url: str) -> dict:
         return self._http("GET", url, {"Authorization": f"Bearer {self.token}"}) or {}
@@ -335,16 +338,33 @@ class LeitorSpotify:
         dados = self._get(f"{API}/playlists/{id_playlist}?fields=name")
         return (dados.get("name") or "").strip() or "Playlist sem nome"
 
-    def faixas_da_playlist(self, id_playlist: str, limite_paginas: int = 100) -> list[Faixa]:
-        """Lê todas as faixas, seguindo a paginação.
+    #: Os dois nomes que o endereço das faixas já teve, na ordem em que vale tentar.
+    #:
+    #: Eu tinha cravado `items` sozinho, a partir de uma leitura de que `tracks` fora
+    #: aposentado. Na prática, `items` respondeu 200 e **não trouxe faixa nenhuma** numa
+    #: playlist com 14 — enquanto o nome da playlist vinha certo pelo outro endereço.
+    #: Em vez de trocar um palpite por outro, o código tenta os dois e usa o que
+    #: responder. Custa uma chamada a mais só quando o primeiro falha.
+    CAMINHOS_DAS_FAIXAS = ("tracks", "items")
 
-        O endpoint é `/items`; o antigo `/tracks` foi aposentado na virada de 2026.
-        `limite_paginas` é rede de proteção contra um `next` que aponta em círculo.
-        """
-        url = f"{API}/playlists/{id_playlist}/items?limit=100"
+    def faixas_da_playlist(self, id_playlist: str, limite_paginas: int = 100) -> list[Faixa]:
+        """Lê todas as faixas, seguindo a paginação."""
+        for caminho in self.CAMINHOS_DAS_FAIXAS:
+            try:
+                faixas = self._ler_paginas(
+                    f"{API}/playlists/{id_playlist}/{caminho}?limit=100", limite_paginas
+                )
+            except ErroSpotify:
+                continue  # este endereço não serve; tenta o próximo
+            if faixas:
+                self.caminho_que_funcionou = caminho
+                return faixas
+        return []
+
+    def _ler_paginas(self, url: str, limite_paginas: int) -> list[Faixa]:
+        """Segue o `next` até acabar. `limite_paginas` protege de um `next` circular."""
         faixas: list[Faixa] = []
         vistos = 0
-
         while url and vistos < limite_paginas:
             pagina = self._get(url)
             for item in pagina.get("items") or []:
@@ -353,7 +373,6 @@ class LeitorSpotify:
                     faixas.append(faixa)
             url = pagina.get("next") or ""
             vistos += 1
-
         return faixas
 
     def ler(self, link_ou_id: str) -> tuple[str, list[Faixa]]:

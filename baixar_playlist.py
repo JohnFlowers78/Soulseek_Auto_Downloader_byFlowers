@@ -127,6 +127,9 @@ def main(argumentos: list[str]) -> int:
         print()
         print("Se esta playlist é sua mesmo, pode ser que ela esteja realmente vazia,")
         print("ou que só tenha podcast (episódio não é faixa de música).")
+        print()
+        print("Se tem faixa e mesmo assim veio vazia, rode o diagnóstico e me mande:")
+        print(f'   .\\.venv\\Scripts\\python.exe diagnostico_spotify.py "{links[0]}"')
         return 1
 
     print(f"\n📋 {nome} — {len(faixas)} faixa(s)\n")
