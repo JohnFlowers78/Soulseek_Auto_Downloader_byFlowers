@@ -15,6 +15,7 @@ coisa que a tela vai fazer — então o que funcionar aqui já está pronto lá.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -26,7 +27,7 @@ from config import Config  # noqa: E402
 # O mesmo extrator que lê nome de arquivo serve para o nome digitado: ele divide em
 # " - ", respeita hífen dentro do nome da banda (Blink-182) e tira selo de qualidade.
 from leitor_pasta import extrair_do_nome  # noqa: E402
-from modelos import Faixa  # noqa: E402
+from modelos import EstadoTransferencia, Faixa  # noqa: E402
 from normalizador import nome_pasta_segura  # noqa: E402
 from qualidade import Criterios  # noqa: E402
 from slskd_cliente import ClienteSlskd, ErroSlskd  # noqa: E402
@@ -69,6 +70,57 @@ def _mostrar_achados(resultado) -> None:
         for avaliacao in resultado.descartados[:8]:
             print(f"  ✗ {avaliacao.candidato.nome_arquivo}")
             print(f"     {avaliacao.motivo}")
+
+    if resultado.de_outro_artista:
+        print(
+            f"\n🚫 {len(resultado.de_outro_artista)} arquivo(s) com esse nome, mas de "
+            "OUTRO artista — barrados:"
+        )
+        for candidato in resultado.de_outro_artista[:6]:
+            pasta = candidato.caminho.replace("\\", "/").rsplit("/", 2)[-2:]
+            print(f"  · {'/'.join(pasta)}")
+        if not resultado.escolhidos:
+            print(
+                "\n   Pode ser que a música não exista com esse artista. Confira a "
+                "grafia, ou busque só pelo título se quiser ver tudo."
+            )
+
+
+def _mostrar_progresso(silencio_max_s: float = 10.0):
+    """Devolve um relator de progresso para passar ao `Baixador`.
+
+    Imprime quando **algo muda** e, se nada mudar, dá um sinal de vida a cada poucos
+    segundos. Sem esse batimento, um download lento deixa a tela muda por até dez
+    minutos — e silêncio longo não se distingue de travamento. Já aconteceu.
+    """
+    ultimo = {"texto": "", "quando": 0.0}
+
+    def relatar(lote) -> None:
+        partes = []
+        for t in lote.transferencias:
+            nome = t.candidato.nome_arquivo
+            curto = nome if len(nome) <= 34 else nome[:31] + "..."
+            if t.estado is EstadoTransferencia.CONCLUIDA:
+                partes.append(f"✅ {curto}")
+            elif t.estado is EstadoTransferencia.BAIXANDO:
+                partes.append(f"⬇ {curto} {t.progresso:.0%}")
+            elif t.estado is EstadoTransferencia.NA_FILA:
+                fila = f" (fila {t.posicao_fila})" if t.posicao_fila else ""
+                partes.append(f"⏳ {curto}{fila}")
+            else:
+                partes.append(f"❌ {curto}")
+
+        texto = "  |  ".join(partes)
+        agora = time.monotonic()
+        mudou = texto != ultimo["texto"]
+        calado_demais = agora - ultimo["quando"] >= silencio_max_s
+        if mudou or calado_demais:
+            marca = time.strftime("%H:%M:%S")
+            print(f"   [{marca}] {texto}")
+            ultimo["texto"] = texto
+            ultimo["quando"] = agora
+
+    return relatar
 
 
 def main(argumentos: list[str]) -> int:
@@ -132,18 +184,8 @@ def main(argumentos: list[str]) -> int:
     if not aceitos:
         print("Nenhum dos escolhidos foi aceito — os usuários podem ter saído do ar.")
         return 1
-    print(f"\n{len(aceitos)} na fila. Acompanhando...")
-
-    vistos: set[str] = set()
-
-    def contar(lote) -> None:
-        for t in lote.transferencias:
-            marca = f"{t.candidato.nome_arquivo}:{t.estado.value}"
-            if marca not in vistos:
-                vistos.add(marca)
-                print(f"   {t.estado.value:12} {t.candidato.nome_arquivo}")
-
-    lote = operario.acompanhar(aceitos, ao_progredir=contar)
+    print(f"\n{len(aceitos)} na fila. Acompanhando (Ctrl+C para parar de olhar)...\n")
+    lote = operario.acompanhar(aceitos, ao_progredir=_mostrar_progresso())
 
     movidos = operario.organizar(lote, destino)
     print()

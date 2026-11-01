@@ -13,9 +13,11 @@ FAIXA = Faixa(artista="Djavan", titulo="Não Vou Ficar", duracao_s=250.0)
 
 
 def arquivo(nome="a.flac", usuario="joao", **ajustes) -> Candidato:
+    # O caminho traz "Djavan" porque a conferência de artista (testada mais abaixo)
+    # reprova o que não bate — e aqui o assunto é outro.
     padrao = dict(
         usuario=usuario,
-        caminho=rf"@@abc\Music\{nome}",
+        caminho=rf"@@abc\Music\Djavan\{nome}",
         tamanho_bytes=30_000_000,
         duracao_s=250.0,
         slot_livre=True,
@@ -135,6 +137,80 @@ def test_faixa_com_duracao_filtra_versao_errada():
     assert any("duração" in d.motivo for d in resultado.descartados)
 
 
+# -------------------------------------------- conferência do artista
+#
+# O episódio que criou esta seção: pedindo "Djavan — Não Vou Ficar", as variantes com
+# o artista voltaram vazias, a `so_titulo` buscou só "Nao Vou Ficar", e o app baixou
+# Kid Abelha e Tim Maia. Arquivos bons, nome certo, faixa errada.
+
+
+def de_outro(nome, pasta, usuario="outro") -> Candidato:
+    return arquivo(nome, usuario, caminho=rf"@@abc\musica\{pasta}\{nome}")
+
+
+def test_nao_baixa_a_musica_certa_do_artista_errado():
+    cliente = ClienteFalso(
+        por_consulta={
+            "Nao Vou Ficar": [
+                de_outro("04 - Nao vou ficar.flac", r"Kid Abelha\Tudo é permitido (1991)"),
+                de_outro("05 - Nao Vou Ficar.flac", r"Tim Maia\1971 - Tim Maia"),
+            ]
+        }
+    )
+    resultado = Buscador(cliente).buscar_faixa(FAIXA)
+
+    assert not resultado.achou
+    assert len(resultado.de_outro_artista) == 2
+
+
+def test_aceita_quando_o_artista_bate():
+    cliente = ClienteFalso(
+        por_consulta={"Nao Vou Ficar": [de_outro("04 - Nao Vou Ficar.flac", r"Djavan\Luz")]}
+    )
+    resultado = Buscador(cliente).buscar_faixa(FAIXA)
+
+    assert resultado.achou
+    assert resultado.de_outro_artista == []
+
+
+def test_a_conferencia_nao_impede_de_tentar_a_proxima_variante():
+    # Se tudo que veio é de outro artista, a busca continua: outra grafia pode achar.
+    cliente = ClienteFalso(
+        por_consulta={
+            "Djavan Não Vou Ficar": [de_outro("x.flac", "Kid Abelha")],
+            "Djavan Nao Vou Ficar": [de_outro("y.flac", "Djavan")],
+        }
+    )
+    resultado = Buscador(cliente).buscar_faixa(FAIXA)
+
+    assert resultado.achou
+    assert resultado.variante_que_acertou.estrategia == "sem_acentos"
+    assert len(resultado.de_outro_artista) == 1
+
+
+def test_o_resumo_distingue_artista_errado_de_nada_achado():
+    cliente = ClienteFalso(padrao=[de_outro("x.flac", "Kid Abelha")])
+    resumo = Buscador(cliente).buscar_faixa(FAIXA).resumo()
+
+    assert "de outro artista" in resumo
+
+
+def test_da_para_desligar_a_conferencia():
+    # Fica configurável porque acervo mal catalogado (sem pasta de artista) seria
+    # reprovado por inteiro — e aí o usuário decide o que prefere.
+    cliente = ClienteFalso(padrao=[de_outro("x.flac", "Kid Abelha")])
+    resultado = Buscador(cliente, conferir_artista=False).buscar_faixa(FAIXA)
+
+    assert resultado.achou
+
+
+def test_faixa_sem_artista_nao_sofre_conferencia():
+    cliente = ClienteFalso(padrao=[de_outro("x.flac", "Qualquer Um")])
+    resultado = Buscador(cliente).buscar_faixa(Faixa(artista="", titulo="Não Vou Ficar"))
+
+    assert resultado.achou
+
+
 # ----------------------------------------------------------------- resumo
 
 
@@ -163,13 +239,15 @@ def test_resumo_distingue_nada_achado_de_nada_aproveitavel():
 def test_busca_uma_lista_inteira():
     # As duas faixas com a mesma duração do candidato falso: aqui o que se testa é o
     # laço, não o filtro de duração (que tem teste próprio logo acima).
+    # Ambas do mesmo artista do candidato falso, senão a conferência de artista
+    # reprova a segunda — e ela tem testes próprios logo acima.
     cliente = ClienteFalso(padrao=[arquivo()])
-    faixas = [FAIXA, Faixa(artista="Tim Maia", titulo="Você", duracao_s=250.0)]
+    faixas = [FAIXA, Faixa(artista="Djavan", titulo="Flor de Lis", duracao_s=250.0)]
     resultados = Buscador(cliente).buscar_varias(faixas)
 
     assert len(resultados) == 2
     assert all(r.achou for r in resultados)
-    assert [r.faixa.titulo for r in resultados] == ["Não Vou Ficar", "Você"]
+    assert [r.faixa.titulo for r in resultados] == ["Não Vou Ficar", "Flor de Lis"]
 
 
 def test_estimativa_de_tempo_usa_o_limitador():

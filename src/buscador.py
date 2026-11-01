@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from modelos import Faixa
-from normalizador import Variante, gerar_variantes
+from modelos import Candidato, Faixa
+from normalizador import Variante, artista_aparece_em, gerar_variantes
 from qualidade import Avaliacao, Criterios, escolher_melhores, ranquear, reprovados
 from slskd_cliente import ClienteSlskd
 
@@ -33,6 +33,10 @@ class ResultadoDaBusca:
     aprovados: list[Avaliacao] = field(default_factory=list)
     #: Os descartados, com o motivo — é o que responde "não tinha nada mesmo?".
     descartados: list[Avaliacao] = field(default_factory=list)
+    #: Arquivos bons que foram barrados por serem de **outro artista**. Separados dos
+    #: demais descartes porque contam outra história: a música existe na rede, com esse
+    #: nome, mas não é a sua.
+    de_outro_artista: list[Candidato] = field(default_factory=list)
     #: Os que vão para a fila de download.
     escolhidos: list[Avaliacao] = field(default_factory=list)
 
@@ -57,6 +61,11 @@ class ResultadoDaBusca:
                 f"⚠️ {self.faixa} — achou {len(self.descartados)}, "
                 f"nenhum passou no filtro ({self.buscas_gastas} busca(s))"
             )
+        if self.de_outro_artista:
+            return (
+                f"❌ {self.faixa} — achou {len(self.de_outro_artista)} com esse nome, "
+                f"mas de outro artista ({self.buscas_gastas} busca(s))"
+            )
         return f"❌ {self.faixa} — nada na rede ({self.buscas_gastas} busca(s))"
 
 
@@ -67,6 +76,7 @@ class Buscador:
         criterios: Criterios | None = None,
         quantidade_por_faixa: int = 2,
         max_variantes: int = 4,
+        conferir_artista: bool = True,
     ):
         """`max_variantes` limita quantas formas tentar antes de desistir.
 
@@ -78,6 +88,7 @@ class Buscador:
         self.criterios = criterios
         self.quantidade_por_faixa = quantidade_por_faixa
         self.max_variantes = max_variantes
+        self.conferir_artista = conferir_artista
 
     def buscar_faixa(self, faixa: Faixa) -> ResultadoDaBusca:
         resultado = ResultadoDaBusca(faixa=faixa)
@@ -88,6 +99,19 @@ class Buscador:
             candidatos = self.cliente.buscar(variante.consulta)
             if not candidatos:
                 continue
+
+            # Confere o artista de volta ANTES de qualquer outra coisa. A variante
+            # `so_titulo` busca sem o artista de propósito, e sem esta peneira o app
+            # baixa a música certa do cantor errado — já aconteceu.
+            if self.conferir_artista and faixa.artista:
+                do_artista, de_outros = [], []
+                for candidato in candidatos:
+                    alvo = do_artista if artista_aparece_em(candidato.caminho, faixa.artista) else de_outros
+                    alvo.append(candidato)
+                resultado.de_outro_artista.extend(de_outros)
+                candidatos = do_artista
+                if not candidatos:
+                    continue
 
             aprovados = ranquear(candidatos, faixa.duracao_s, self.criterios)
             if not aprovados:

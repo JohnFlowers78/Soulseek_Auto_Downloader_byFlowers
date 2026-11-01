@@ -150,6 +150,48 @@ def test_acompanhar_ignora_downloads_de_outras_faixas(tmp_path):
     assert lote.transferencias[0].candidato.nome_arquivo == "minha.flac"
 
 
+def test_nao_termina_cedo_quando_o_slskd_omite_uma_transferencia(tmp_path):
+    """O bug que fazia perder download: o lote era trocado pelo que a consulta trouxe.
+
+    O slskd nem sempre devolve todas as transferências em toda consulta. Se a lista for
+    substituída em bloco, o lote encolhe, `tudo_terminou` vira verdadeiro com o que
+    sumiu ainda baixando, e o acompanhamento acaba cedo.
+    """
+    voltas = {"n": 0}
+
+    def downloads():
+        voltas["n"] += 1
+        if voltas["n"] == 1:
+            # só a primeira aparece, e já concluída
+            return [transferencia(EstadoTransferencia.CONCLUIDA, "a.flac", "joao")]
+        if voltas["n"] == 2:
+            # a segunda aparece agora, ainda baixando
+            return [transferencia(EstadoTransferencia.BAIXANDO, "b.flac", "maria")]
+        return [
+            transferencia(EstadoTransferencia.CONCLUIDA, "a.flac", "joao"),
+            transferencia(EstadoTransferencia.CONCLUIDA, "b.flac", "maria"),
+        ]
+
+    lote = baixador(ClienteFalso(downloads), tmp_path).acompanhar(
+        [candidato("a.flac", "joao"), candidato("b.flac", "maria")]
+    )
+
+    assert len(lote.transferencias) == 2
+    assert len(lote.concluidas) == 2
+    assert voltas["n"] >= 3, "terminou antes de a segunda completar"
+
+
+def test_o_lote_sempre_tem_todos_os_candidatos_pedidos(tmp_path):
+    # Mesmo que o slskd não devolva nada, as duas têm que aparecer no relatório —
+    # senão a faixa some das três listas da tela.
+    cliente = ClienteFalso([])
+    lote = baixador(cliente, tmp_path).acompanhar(
+        [candidato("a.flac", "joao"), candidato("b.flac", "maria")], espera_max_s=3
+    )
+    assert len(lote.transferencias) == 2
+    assert len(lote.presas) == 2
+
+
 def test_acompanhar_avisa_o_progresso(tmp_path):
     avisos = []
     cliente = ClienteFalso([transferencia(EstadoTransferencia.CONCLUIDA)])

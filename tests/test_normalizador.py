@@ -7,6 +7,7 @@ import pytest
 
 from normalizador import (
     Variante,
+    artista_aparece_em,
     colapsa_espacos,
     gerar_variantes,
     nome_pasta_segura,
@@ -295,6 +296,64 @@ def test_variante_e_imutavel_e_comparavel():
     assert a == Variante("x", "fiel")
     with pytest.raises(Exception):
         a.consulta = "y"  # type: ignore[misc]
+
+
+# --------------------------------------------------------- conferir o artista
+
+# Os dois caminhos abaixo foram BAIXADOS DE VERDADE pelo app ao pedir
+# "Djavan — Não Vou Ficar", porque a variante `so_titulo` busca sem o artista e nada
+# conferia o artista de volta. São o caso que esta função existe para barrar.
+CAMINHO_KID_ABELHA = r"@@nas\musica\Kid Abelha\Tudo é permitido (1991)\04 - Nao vou ficar.flac"
+CAMINHO_TIM_MAIA = r"@@bkp\music\Tim Maia\1971 - Tim Maia\05 - Nao Vou Ficar.flac"
+
+
+def test_barra_a_musica_certa_do_artista_errado():
+    assert not artista_aparece_em(CAMINHO_KID_ABELHA, "Djavan")
+    assert not artista_aparece_em(CAMINHO_TIM_MAIA, "Djavan")
+
+
+def test_aceita_quando_o_artista_esta_no_caminho():
+    assert artista_aparece_em(CAMINHO_TIM_MAIA, "Tim Maia")
+    assert artista_aparece_em(CAMINHO_KID_ABELHA, "Kid Abelha")
+
+
+def test_o_artista_pode_estar_na_pasta_e_nao_no_arquivo():
+    # É o caso comum: quem compartilha guarda em Artista/Álbum/faixa.
+    assert artista_aparece_em(r"@@x\Djavan\Luz\04 - Nao Vou Ficar.flac", "Djavan")
+
+
+def test_acento_no_artista_nao_atrapalha():
+    assert artista_aparece_em(r"@@x\Ceu\Malemolencia.flac", "Céu")
+    assert artista_aparece_em(r"@@x\Céu\Malemolência.flac", "Ceu")
+
+
+def test_so_o_artista_principal_precisa_bater():
+    # Convidados são grafados de mil formas; exigir todos reprovaria arquivo bom.
+    assert artista_aparece_em(r"@@x\Djavan\faixa.flac", "Djavan, Alcione & Zeca")
+
+
+def test_compara_palavra_inteira_e_nao_pedaco():
+    # "tim" não pode casar dentro de "ultimate".
+    assert not artista_aparece_em(r"@@x\Ultimate Hits\faixa.flac", "Tim Maia")
+
+
+def test_todas_as_palavras_do_artista_precisam_estar():
+    assert not artista_aparece_em(r"@@x\Tim Bernardes\faixa.flac", "Tim Maia")
+
+
+def test_sem_artista_para_conferir_nao_reprova_nada():
+    # Busca só por título (o usuário não informou artista): não há o que exigir.
+    assert artista_aparece_em(CAMINHO_KID_ABELHA, "")
+    assert artista_aparece_em(CAMINHO_KID_ABELHA, "   ")
+
+
+def test_artista_que_vira_nada_depois_de_limpar_nao_reprova():
+    # Um artista de uma letra só não tem como ser conferido com segurança.
+    assert artista_aparece_em(CAMINHO_KID_ABELHA, "A")
+
+
+def test_barra_normal_tambem_funciona():
+    assert artista_aparece_em("/home/x/Djavan/Luz/04.flac", "Djavan")
 
 
 # ----------------------------------------------------------------- nome de pasta

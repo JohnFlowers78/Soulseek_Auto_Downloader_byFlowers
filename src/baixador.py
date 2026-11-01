@@ -100,21 +100,30 @@ class Baixador:
         comprida, e é a terceira lista da tela. Cancelar seria jogar fora um download
         que ainda pode completar sozinho mais tarde.
         """
-        procurados = {(c.usuario, c.nome_arquivo) for c in candidatos}
-        lote = Lote(transferencias=[Transferencia(candidato=c) for c in candidatos])
+        # Guardado por (usuário, arquivo) e **atualizado no lugar**, nunca substituído
+        # em bloco. A diferença não é estilo: o slskd nem sempre devolve todas as
+        # transferências em toda consulta, e trocar a lista inteira pelo que veio faria
+        # o lote encolher. Aí `tudo_terminou` daria True com o que sumiu da lista ainda
+        # baixando, e o acompanhamento terminaria cedo — perdendo um arquivo que estava
+        # a caminho.
+        por_chave: dict[tuple[str, str], Transferencia] = {
+            (c.usuario, c.nome_arquivo): Transferencia(candidato=c) for c in candidatos
+        }
+        lote = Lote(transferencias=list(por_chave.values()))
 
         inicio = self._relogio()
-        while self._relogio() - inicio < espera_max_s:
-            atuais = [
-                t
-                for t in self.cliente.downloads()
-                if (t.candidato.usuario, t.candidato.nome_arquivo) in procurados
-            ]
-            if atuais:
-                lote.transferencias = atuais
+        while True:
+            for atual in self.cliente.downloads():
+                chave = (atual.candidato.usuario, atual.candidato.nome_arquivo)
+                if chave in por_chave:
+                    por_chave[chave] = atual
+            lote.transferencias = list(por_chave.values())
+
             if ao_progredir:
                 ao_progredir(lote)
-            if atuais and lote.tudo_terminou:
+            if lote.tudo_terminou:
+                break
+            if self._relogio() - inicio >= espera_max_s:
                 break
             self._dormir(passo_s)
 

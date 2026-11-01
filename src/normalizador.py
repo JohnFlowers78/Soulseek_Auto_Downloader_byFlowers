@@ -167,6 +167,33 @@ def palavras_marcantes(palavras: list[str]) -> list[str]:
     return [p for p in palavras if p in duas_maiores][:2]
 
 
+def artista_aparece_em(caminho: str, artista: str) -> bool:
+    """O artista pedido aparece no caminho do arquivo achado?
+
+    Esta função existe por causa de um erro real: ao buscar *Djavan — Não Vou Ficar*, as
+    variantes com o artista voltaram vazias, a variante ``so_titulo`` buscou só
+    ``Nao Vou Ficar``, trouxe 51 respostas, e o app baixou **Kid Abelha** e **Tim Maia**.
+    Os arquivos eram bons, o nome batia, e a faixa estava errada.
+
+    A variante sem artista continua valendo — ela resolve o caso do artista grafado de
+    outro jeito. O que faltava era **conferir o artista de volta** no resultado.
+
+    A comparação é por palavra inteira, no caminho todo (pasta inclusive), sem acento e
+    sem pontuação: quem compartilha quase sempre guarda em ``Artista/Álbum/faixa``.
+    Quando não há artista para conferir, não há o que reprovar.
+    """
+    if not (artista or "").strip():
+        return True
+
+    palavras_do_artista = palavras_uteis(primeiro_artista(artista))
+    if not palavras_do_artista:
+        return True
+
+    texto = caminho.replace("\\", " ").replace("/", " ")
+    presentes = set(sem_pontuacao(sem_acentos(texto)).casefold().split())
+    return all(palavra in presentes for palavra in palavras_do_artista)
+
+
 def nome_pasta_segura(nome: str, tamanho_maximo: int = 120) -> str:
     """Transforma o nome da playlist em nome de pasta que o Windows aceita.
 
