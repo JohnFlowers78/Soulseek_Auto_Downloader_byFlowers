@@ -217,6 +217,51 @@ def titulo_aparece_em(nome_arquivo: str, titulo: str) -> bool:
     return all(palavra in presentes for palavra in palavras_do_titulo)
 
 
+def proximidade_do_titulo(nome_arquivo: str, titulo: str) -> float:
+    """De 0 a 1: quanto do nome do arquivo é o título pedido, e quanto é outra coisa.
+
+    Nasceu de um acerto incompleto. Pedindo *Djavan — Flor de Lis*, vieram dois FLACs:
+
+        13 Flor de Lis.flac                           ← a faixa
+        08_Limão  Avião  Flor De Lis - Ao Vivo.flac   ← um pot-pourri ao vivo
+
+    Os dois **contêm** o título — `titulo_aparece_em` aprova os dois, e com razão: as
+    palavras estão lá. O que distingue é o que vem **junto**. Medley, faixa bônus e
+    "ao vivo" aparecem como palavras a mais no nome.
+
+    Vira **nota de desempate**, nunca reprovação: "Ao Vivo" às vezes é justamente a
+    versão que se quer, e um nome com número de faixa e nome do álbum continua sendo o
+    arquivo certo. Quem decide é a ordem, não a porta.
+
+    > Quando a faixa vem do Spotify isto importa menos, porque aí há **duração** para
+    > comparar e um medley de 8 minutos cai no filtro antes de chegar aqui. É na busca
+    > digitada à mão, sem duração, que esta nota faz diferença.
+    """
+    palavras_do_titulo = set(palavras_uteis(sem_parenteses(sem_participacao(titulo or ""))))
+    if not palavras_do_titulo:
+        return 1.0
+
+    palavras_do_nome = palavras_uteis(_sem_extensao(nome_arquivo))
+    if not palavras_do_nome:
+        return 0.0
+
+    return len(palavras_do_titulo & set(palavras_do_nome)) / len(palavras_do_nome)
+
+
+def _sem_extensao(nome_arquivo: str) -> str:
+    """Tira o ``.flac`` do fim.
+
+    Sem isto a extensão contava como palavra e diluía a nota de todo mundo —
+    ``Malemolência.flac`` contra o título ``Malemolência`` dava 0,5 em vez de 1,0. A
+    comparação entre dois arquivos ainda funcionava, porque o viés era o mesmo para
+    todos, mas o número em si mentia. Número que mente acaba sendo lido por alguém.
+    """
+    raiz, ponto, fim = nome_arquivo.rpartition(".")
+    if ponto and 1 <= len(fim) <= 5 and fim.isalnum():
+        return raiz
+    return nome_arquivo
+
+
 def nome_pasta_segura(nome: str, tamanho_maximo: int = 120) -> str:
     """Transforma o nome da playlist em nome de pasta que o Windows aceita.
 

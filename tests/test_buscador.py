@@ -243,6 +243,33 @@ def test_faixa_sem_artista_nao_sofre_conferencia():
     assert resultado.achou
 
 
+def test_entre_dois_aprovados_o_nome_mais_limpo_vem_primeiro():
+    """O caso real do 'Flor de Lis': os dois eram FLAC e os dois foram aprovados.
+
+    Um era a faixa; o outro, um pot-pourri ao vivo que contém o título. Qualidade
+    igual, probabilidade bem diferente.
+    """
+    faixa = Faixa(artista="Djavan", titulo="Flor de Lis", duracao_s=250.0)
+    medley = arquivo("08_Limão  Avião  Flor De Lis - Ao Vivo.flac", "revco")
+    limpo = arquivo("13 Flor de Lis.flac", "eduardo")
+
+    cliente = ClienteFalso(padrao=[medley, limpo])
+    resultado = Buscador(cliente).buscar_faixa(faixa)
+
+    assert resultado.aprovados[0].candidato.nome_arquivo == "13 Flor de Lis.flac"
+
+
+def test_a_proximidade_nao_passa_na_frente_da_qualidade():
+    # 30 pontos desempatam entre iguais; não fazem um MP3 ganhar de um FLAC.
+    faixa = Faixa(artista="Djavan", titulo="Flor de Lis", duracao_s=250.0)
+    mp3_limpo = arquivo("Flor de Lis.mp3", "a", bitrate_kbps=320)
+    flac_sujo = arquivo("08_Limão Avião Flor De Lis Ao Vivo.flac", "b")
+
+    resultado = Buscador(ClienteFalso(padrao=[mp3_limpo, flac_sujo])).buscar_faixa(faixa)
+
+    assert resultado.aprovados[0].candidato.extensao == "flac"
+
+
 # ----------------------------------------------------------------- resumo
 
 

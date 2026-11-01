@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import http.server
 import json
 import re
 import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from typing import Any, Callable
 
 from modelos import Faixa
@@ -169,6 +171,105 @@ def renovar_token(client_id: str, refresh_token: str, http=_http) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# A dança do navegador
+# ---------------------------------------------------------------------------
+
+_PAGINA_OK = """<!doctype html><meta charset="utf-8">
+<title>Pronto</title>
+<body style="font-family:system-ui;background:#121212;color:#eee;text-align:center;padding:4rem">
+<h1>✅ Autorizado</h1>
+<p>Pode fechar esta aba e voltar para o terminal.</p>
+</body>"""
+
+_PAGINA_ERRO = """<!doctype html><meta charset="utf-8">
+<title>Não deu</title>
+<body style="font-family:system-ui;background:#121212;color:#eee;text-align:center;padding:4rem">
+<h1>❌ Não autorizado</h1>
+<p>Volte ao terminal para ver o motivo.</p>
+</body>"""
+
+
+class _Coletor(http.server.BaseHTTPRequestHandler):
+    """Atende **uma** requisição: a que o Spotify manda de volta com o código."""
+
+    recebido: dict = {}
+
+    def do_GET(self) -> None:  # noqa: N802 — nome exigido pela biblioteca
+        partes = urllib.parse.urlparse(self.path)
+        parametros = {k: v[0] for k, v in urllib.parse.parse_qs(partes.query).items()}
+        type(self).recebido = parametros
+
+        deu_certo = "code" in parametros
+        corpo = (_PAGINA_OK if deu_certo else _PAGINA_ERRO).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def log_message(self, *_args) -> None:
+        """Silencia o log do servidor — ele sujaria a saída do nosso comando."""
+
+
+def autorizar_no_navegador(
+    client_id: str,
+    abrir=webbrowser.open,
+    porta: int = 8888,
+    espera_max_s: float = 300.0,
+    avisar=print,
+) -> dict:
+    """Abre o navegador, espera a autorização e troca o código por tokens.
+
+    Devolve o que o Spotify respondeu: `access_token`, `refresh_token`, `expires_in`.
+
+    O `state` é conferido na volta. Sem isso, qualquer página aberta no navegador
+    poderia chamar o nosso endereço local com um código próprio e ligar a conta dela
+    à sua sessão.
+    """
+    if not client_id.strip():
+        raise ErroSpotify("Falta o Client ID do Spotify nas Configurações.")
+
+    verificador = gerar_verificador()
+    estado = secrets.token_urlsafe(16)
+    url = montar_url_de_autorizacao(client_id, verificador, estado)
+
+    _Coletor.recebido = {}
+    try:
+        servidor = http.server.HTTPServer(("127.0.0.1", porta), _Coletor)
+    except OSError as erro:
+        raise ErroSpotify(
+            f"Não consegui escutar em 127.0.0.1:{porta} ({erro}). "
+            "Alguma coisa já está usando essa porta?"
+        ) from erro
+
+    servidor.timeout = espera_max_s
+    try:
+        avisar(f"Abrindo o navegador para você autorizar...\n\nSe não abrir, use este link:\n{url}\n")
+        abrir(url)
+        servidor.handle_request()
+    finally:
+        servidor.server_close()
+
+    recebido = _Coletor.recebido
+    if not recebido:
+        raise ErroSpotify(f"Ninguém voltou do navegador em {espera_max_s:.0f}s.")
+    if recebido.get("error"):
+        raise ErroSpotify(f"Você (ou o Spotify) recusou: {recebido['error']}")
+    if recebido.get("state") != estado:
+        raise ErroSpotify(
+            "O 'state' que voltou não é o que eu mandei. Por segurança, não vou "
+            "continuar — tente de novo."
+        )
+    if not recebido.get("code"):
+        raise ErroSpotify("O Spotify não mandou o código de autorização.")
+
+    tokens = trocar_codigo_por_token(client_id, recebido["code"], verificador)
+    if not tokens.get("access_token"):
+        raise ErroSpotify(f"A troca pelo token falhou: {tokens}")
+    return tokens
+
+
+# ---------------------------------------------------------------------------
 # Leitura
 # ---------------------------------------------------------------------------
 
@@ -197,6 +298,29 @@ def faixa_do_item(item: dict) -> Faixa | None:
         duracao_s=duracao_ms / 1000 if duracao_ms else None,
         isrc=((faixa.get("external_ids") or {}).get("isrc") or "").strip(),
     )
+
+
+def acesso_a_partir_do_refresh(
+    client_id: str, refresh_token: str, http=_http
+) -> tuple[str, str]:
+    """Devolve `(token de acesso, refresh token a guardar)`.
+
+    O segundo valor existe porque o Spotify **às vezes** devolve um refresh token novo
+    nesta troca e às vezes repete o antigo. Guardar sempre o que volta — ou o antigo,
+    quando não vier nada — é o que impede a sessão de morrer sem explicação semanas
+    depois.
+    """
+    if not refresh_token:
+        raise ErroSpotify("Você ainda não entrou na sua conta. Rode: python entrar_spotify.py")
+
+    resposta = renovar_token(client_id, refresh_token, http)
+    acesso = resposta.get("access_token")
+    if not acesso:
+        raise ErroSpotify(
+            "Não consegui renovar o acesso ao Spotify. Entre de novo: "
+            "python entrar_spotify.py"
+        )
+    return acesso, (resposta.get("refresh_token") or refresh_token)
 
 
 class LeitorSpotify:

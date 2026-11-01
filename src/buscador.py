@@ -18,6 +18,7 @@ from normalizador import (
     Variante,
     artista_aparece_em,
     gerar_variantes,
+    proximidade_do_titulo,
     titulo_aparece_em,
 )
 from qualidade import Avaliacao, Criterios, escolher_melhores, ranquear, reprovados
@@ -130,7 +131,7 @@ class Buscador:
                 continue
 
             resultado.variante_que_acertou = variante
-            resultado.aprovados = aprovados
+            resultado.aprovados = self._reordenar_por_proximidade(aprovados, faixa)
             resultado.descartados = reprovados(candidatos, faixa.duracao_s, self.criterios)
             resultado.escolhidos = escolher_melhores(aprovados, self.quantidade_por_faixa)
             return resultado
@@ -163,6 +164,29 @@ class Buscador:
                 continue
             sobreviventes.append(candidato)
         return sobreviventes
+
+    #: Peso da proximidade do nome no desempate. Pequeno de propósito: 30 pontos
+    #: desempatam entre dois FLACs, mas não fazem um MP3 (500) passar na frente de um
+    #: sem perda (1000). Qualidade continua mandando; o nome só decide empate.
+    PESO_DA_PROXIMIDADE = 30
+
+    def _reordenar_por_proximidade(
+        self, aprovados: list[Avaliacao], faixa: Faixa
+    ) -> list[Avaliacao]:
+        """Entre arquivos de mesma qualidade, prefere o nome mais limpo.
+
+        É o que separa `13 Flor de Lis.flac` de
+        `08_Limão Avião Flor De Lis - Ao Vivo.flac` — os dois aprovados, um deles bem
+        mais provável de ser a faixa pedida.
+        """
+        if not faixa.titulo:
+            return aprovados
+
+        def nota(avaliacao: Avaliacao) -> float:
+            proximidade = proximidade_do_titulo(avaliacao.candidato.nome_arquivo, faixa.titulo)
+            return avaliacao.pontos + proximidade * self.PESO_DA_PROXIMIDADE
+
+        return sorted(aprovados, key=nota, reverse=True)
 
     def buscar_varias(self, faixas: list[Faixa]) -> list[ResultadoDaBusca]:
         """Busca uma lista inteira. Demora o que o limitador mandar."""

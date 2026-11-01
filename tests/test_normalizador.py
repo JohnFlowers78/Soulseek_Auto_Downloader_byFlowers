@@ -14,6 +14,7 @@ from normalizador import (
     palavras_marcantes,
     palavras_uteis,
     primeiro_artista,
+    proximidade_do_titulo,
     sem_acentos,
     sem_parenteses,
     sem_participacao,
@@ -392,6 +393,39 @@ def test_falta_de_uma_palavra_do_titulo_reprova():
 
 def test_titulo_vazio_nao_reprova_nada():
     assert titulo_aparece_em("qualquer coisa.flac", "")
+
+
+# ------------------------------------------------ proximidade do título
+
+# Caso real: pedindo "Djavan — Flor de Lis" vieram os dois abaixo. Os DOIS contêm o
+# título, e `titulo_aparece_em` aprova os dois — com razão. O que separa é o resto.
+LIMPO = "13 Flor de Lis.flac"
+MEDLEY = "08_Limão  Avião  Flor De Lis - Ao Vivo.flac"
+
+
+def test_o_nome_limpo_fica_mais_proximo_que_o_medley():
+    assert proximidade_do_titulo(LIMPO, "Flor de Lis") > proximidade_do_titulo(
+        MEDLEY, "Flor de Lis"
+    )
+
+
+def test_os_dois_continuam_aprovados_pela_conferencia_de_titulo():
+    # A proximidade é desempate, não porta: "Ao Vivo" às vezes é o que se quer.
+    assert titulo_aparece_em(LIMPO, "Flor de Lis")
+    assert titulo_aparece_em(MEDLEY, "Flor de Lis")
+
+
+def test_nome_exatamente_igual_ao_titulo_tem_proximidade_total():
+    assert proximidade_do_titulo("Malemolência.flac", "Malemolência") == 1.0
+
+
+def test_proximidade_fica_entre_zero_e_um():
+    for nome in (LIMPO, MEDLEY, "nada a ver.flac", ""):
+        assert 0.0 <= proximidade_do_titulo(nome, "Flor de Lis") <= 1.0
+
+
+def test_sem_titulo_a_proximidade_nao_desempata_nada():
+    assert proximidade_do_titulo(MEDLEY, "") == 1.0
 
 
 # ----------------------------------------------------------------- nome de pasta
