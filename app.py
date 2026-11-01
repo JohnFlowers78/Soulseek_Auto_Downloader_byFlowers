@@ -1,9 +1,11 @@
 """Ponto de entrada do Soulseek Auto Downloader.
 
-Hoje abre a tela de **Configurações** — a primeira janela do app. As demais telas
-(playlist, busca avulsa, acervo, comparação de espectrogramas) estão no TODO.md.
-
     python app.py
+
+Abre a janela com tudo: baixar playlist ou música avulsa, ligar o motor (o slskd em
+segundo plano, **sem terminal**) e as Configurações. Os comandos de linha continuam
+existindo (`baixar.py`, `baixar_playlist.py`) para quem preferir, mas a janela não
+depende deles.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 def principal() -> int:
     try:
-        from tela_configuracoes import abrir
+        from tela_principal import abrir
     except ImportError as erro:
         print("Não consegui carregar a interface gráfica.")
         print(f"Motivo: {erro}\n")

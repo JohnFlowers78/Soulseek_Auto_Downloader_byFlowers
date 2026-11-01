@@ -30,7 +30,7 @@ class Foco(str, Enum):
 
     @property
     def rotulo(self) -> str:
-        return "sem perda (AIFF/WAV/FLAC)" if self is Foco.SEM_PERDA else "MP3 320"
+        return "sem perda (AIFF/WAV/FLAC)" if self == Foco.SEM_PERDA else "MP3 320"
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,11 @@ def escolher_por_politica(
     pegar(_e_mp3, "MP3 320")
 
     # 3: a vaga extra vai para o formato que vai tocar.
-    if foco is Foco.SEM_PERDA:
+    #
+    # Comparacao por == e nao por `is`: Foco e um enum de STRING, e atravessa camadas
+    # que o reduzem a texto (o Qt guarda 'sem_perda' num QComboBox, nao o membro). Com
+    # `is`, o foco escolhido pelo usuario era silenciosamente ignorado.
+    if foco == Foco.SEM_PERDA:
         pegar(lambda a: _e_sem_perda(a, criterios), "2ª sem perda (foco)")
     else:
         pegar(_e_mp3, "2º MP3 (foco)")

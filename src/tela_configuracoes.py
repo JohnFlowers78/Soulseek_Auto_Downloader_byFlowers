@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -247,8 +248,126 @@ class TelaConfiguracoes(QWidget):
         formulario.addRow("Client Secret:", self.spotify_secret)
         corpo.addLayout(formulario)
 
+        corpo.addSpacing(14)
+
+        grupo = QGroupBox("Sua conta")
+        dentro = QVBoxLayout(grupo)
+
+        self.rotulo_conta = QLabel("")
+        self.rotulo_conta.setWordWrap(True)
+        dentro.addWidget(self.rotulo_conta)
+
+        self.botao_entrar = QPushButton("Entrar com o Spotify")
+        self.botao_entrar.clicked.connect(self._entrar_no_spotify)
+        self.botao_sair = QPushButton("Sair da conta")
+        self.botao_sair.setToolTip("Apaga o acesso guardado para você entrar com outra conta")
+        self.botao_sair.clicked.connect(self._sair_do_spotify)
+
+        linha = QHBoxLayout()
+        linha.addWidget(self.botao_entrar)
+        linha.addWidget(self.botao_sair)
+        linha.addStretch(1)
+        dentro.addLayout(linha)
+        corpo.addWidget(grupo)
+
+        corpo.addSpacing(14)
+
+        liberar = QGroupBox("Deixar outras pessoas usarem o seu app")
+        interno = QVBoxLayout(liberar)
+        interno.addWidget(
+            _explicacao(
+                "Um app do Spotify nasce em <b>Development Mode</b>: só contas que você "
+                "cadastrar à mão conseguem autorizar, e o teto é de <b>25 pessoas</b>. "
+                "Quem não estiver na lista recebe erro ao tentar entrar.<br><br>"
+                "O botão abre o painel. Lá, entre no seu app → <b>Settings</b> → "
+                "<b>User Management</b> e adicione <b>nome e e-mail</b> da conta Spotify "
+                "de cada pessoa.<br><br>"
+                "<i>Passar de 25 exige pedir o Extended Quota Mode, que passa por revisão "
+                "da Spotify — isso ainda não foi confirmado na fonte.</i>"
+            )
+        )
+        botao_painel = QPushButton("Abrir o painel do Spotify para cadastrar usuários")
+        botao_painel.clicked.connect(self._abrir_painel_do_spotify)
+        interno.addWidget(botao_painel, alignment=Qt.AlignmentFlag.AlignLeft)
+        corpo.addWidget(liberar)
+
         corpo.addStretch(1)
+        self._atualizar_conta()
         return aba
+
+    # ----------------------------------------------------------- Spotify
+
+    def _atualizar_conta(self) -> None:
+        if self.config.spotify_refresh_token:
+            nome = self.config.spotify_nome_da_conta or "(conta conectada)"
+            self.rotulo_conta.setText(f"✅ Entrou como <b>{nome}</b>")
+            self.botao_entrar.setText("Entrar com outra conta")
+            self.botao_sair.setEnabled(True)
+        else:
+            self.rotulo_conta.setText("⬜ Nenhuma conta conectada.")
+            self.botao_entrar.setText("Entrar com o Spotify")
+            self.botao_sair.setEnabled(False)
+
+    def _abrir_painel_do_spotify(self) -> None:
+        webbrowser.open("https://developer.spotify.com/dashboard")
+
+    def _sair_do_spotify(self) -> None:
+        """Apaga o acesso guardado — é o que permite entrar com outra conta.
+
+        Usa `esquecer_segredos()`, o único caminho que apaga segredo de verdade: a
+        gravação comum protege segredos justamente para não perdê-los por acidente.
+        """
+        confirmacao = QMessageBox.question(
+            self,
+            "Sair da conta do Spotify",
+            "Isso apaga o acesso guardado desta máquina.\n\n"
+            "O Client ID continua aqui — só a conta sai. Continuar?",
+        )
+        if confirmacao != QMessageBox.StandardButton.Yes:
+            return
+
+        guardados = (self.config.slskd_api_key, self.config.spotify_client_secret)
+        self.config.spotify_refresh_token = ""
+        self.config.spotify_nome_da_conta = ""
+        self.config.esquecer_segredos()
+        # `esquecer_segredos` limpa TODOS os segredos; os outros voltam na hora.
+        self.config.slskd_api_key, self.config.spotify_client_secret = guardados
+        self.config.salvar()
+
+        self._atualizar_conta()
+        self._mostrar_pendencias()
+
+    def _entrar_no_spotify(self) -> None:
+        client_id = self.spotify_id.text().strip()
+        if not client_id:
+            QMessageBox.warning(
+                self,
+                "Falta o Client ID",
+                "Cole o Client ID do seu app do Spotify antes de entrar.",
+            )
+            return
+
+        self.config.spotify_client_id = client_id
+        self.botao_entrar.setEnabled(False)
+        self.rotulo_conta.setText("⏳ Abrindo o navegador... autorize por lá e volte aqui.")
+
+        from trabalho import TarefaDeEntrada
+
+        self._entrada = TarefaDeEntrada(client_id)
+        self._entrada.terminou.connect(self._terminou_a_entrada)
+        self._entrada.start()
+
+    def _terminou_a_entrada(self, deu_certo: bool, recado: str) -> None:
+        self.botao_entrar.setEnabled(True)
+        if not deu_certo:
+            self.rotulo_conta.setText(f"❌ {recado}")
+            return
+
+        self.config.spotify_refresh_token = self._entrada.refresh_token
+        self.config.spotify_nome_da_conta = recado
+        self.config.salvar()
+        self._atualizar_conta()
+        self._mostrar_pendencias()
 
     def _impedimento_para_confirmar(self) -> str:
         """Motivo de não dar para confirmar a pasta, ou `""` se dá.

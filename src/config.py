@@ -53,6 +53,8 @@ class Config:
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
     spotify_refresh_token: str = ""
+    #: So para a tela dizer "entrou como Fulano". Nao e segredo.
+    spotify_nome_da_conta: str = ""
 
     # --- qualidade -----------------------------------------------------------
     formatos_aceitos: list[str] = field(default_factory=lambda: list(FORMATOS_PADRAO))
