@@ -68,6 +68,46 @@ gravação. Duas músicas com o mesmo nome e o mesmo artista podem ser gravaçõ
 dá para confirmar o acerto sem ouvir. É mais um motivo para preferir o caminho da API ao
 caminho do navegador.
 
+### Apagar a busca matava a busca — e no fim derrubou o motor da rede
+A playlist de 27 faixas baixou **zero** arquivos. O relatório culpou a rede; o log do
+slskd contava outra coisa.
+
+O app apagava cada busca (`DELETE /searches/{id}`) assim que lia as respostas — inclusive
+quando a busca **ainda estava rodando**, o que acontece sempre que o tempo-limite de 25 s
+estoura. Apagar busca em andamento cancela a busca por dentro do slskd, e a tarefa dele
+que ia gravar o resultado quebra:
+
+    Failed to execute search for 'Kellie Allen Burning Up': The database operation was
+    expected to affect 1 row(s), but actually affected 0 row(s); data may have been
+    modified or deleted
+
+São **200** desses num dia de log. E o estrago vem em dois andares:
+
+1. **A busca certa morre e o app cai na variante larga.** `Kellie Allen Burning Up`
+   falhou → caiu para `Burning Up` → 250 respostas, 2430 arquivos, nenhum dela.
+   `Adem4 Lost` falhou → caiu para `Lost` → 17597 arquivos de entulho. O relatório diz
+   "achou 17597 com esse nome, mas de outro artista", o que é verdade e esconde a causa:
+   a busca que acharia a música nunca terminou.
+2. **Eventualmente o cliente Soulseek trava.** Logo depois de um desses cancelamentos ele
+   entrou em `Disconnecting` e **ficou**: mais de uma hora depois ainda estava assim, sem
+   se desconectar e sem reconectar. A porta HTTP continuou respondendo o tempo todo.
+
+A regra que fica: **só apague o que já terminou.** O que estourou o tempo fica para a
+faxina, que confere `isComplete` antes de apagar.
+
+### Porta respondendo não é motor funcionando
+Com o cliente travado em `Disconnecting`, toda busca voltava **HTTP 409**. Só que 409
+também é o código de "ocupado, tente de novo" — e era assim que o app o tratava. Resultado:
+três tentativas por faixa, 18 segundos queimados, e **14 faixas seguidas marcadas como
+"não vieram"** sem que nenhuma delas tivesse sido procurada.
+
+Só o **corpo** da resposta distingue: `must be connected and logged in`.
+
+E a verificação que o app usava para decidir se o motor estava vivo era `porta_atende()`
+— que responde sim com o motor fora da rede. A pergunta certa é `conectado()`: *Connected*
+**e** *LoggedIn*. Vale para qualquer serviço com duas camadas: estar de pé e estar
+funcionando são perguntas diferentes, e a fácil de medir é a errada.
+
 ### "De 21 músicas só aparecem 11": três defeitos com o mesmo sintoma
 Quem olha a tela vê uma coisa só — faixa que sumiu. Por baixo eram três causas diferentes, e
 nenhuma delas dava erro nenhum:

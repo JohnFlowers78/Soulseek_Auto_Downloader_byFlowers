@@ -34,7 +34,7 @@ from modelos import EstadoTransferencia, Faixa
 from normalizador import nome_pasta_segura
 from politica import Foco
 from qualidade import Criterios
-from slskd_cliente import ClienteSlskd, ErroSlskd
+from slskd_cliente import ClienteSlskd, ErroSlskd, SemRedeSoulseek
 
 
 def criterios_de(config: Config) -> Criterios:
@@ -127,6 +127,8 @@ class TarefaDeDownload(QThread):
         #: morre em vez de perder a corrida. Sem ele, so sabe avisar.
         self.motor = motor
         self.religadas = 0
+        #: Quantas vezes o motor saiu da rede Soulseek no meio da corrida.
+        self.quedas_de_rede = 0
         self._parar = False
         #: Registro por faixa. Existe para que TODA faixa apareca em exatamente um
         #: lugar no relatorio — de 21, so 11 apareciam antes disto.
@@ -239,6 +241,22 @@ class TarefaDeDownload(QThread):
 
             try:
                 self._uma_faixa(i, faixa, buscador, operario, pendentes)
+            except SemRedeSoulseek:
+                # Fora da rede, NENHUMA busca funciona. Marcar a faixa como "não veio"
+                # seria mentira: ela não chegou a ser procurada. Esperar a rede voltar
+                # e tentar de novo é o único movimento honesto.
+                if not self._esperar_a_rede(cliente, andamento):
+                    andamento.recado = (
+                        "o motor saiu da rede Soulseek e não voltou — parei aqui. "
+                        f"As {len(faixas) - i + 1} faixas restantes continuam na lista "
+                        "'A fazer', nenhuma delas foi procurada."
+                    )
+                    self.progrediu.emit(andamento)
+                    break
+                try:
+                    self._uma_faixa(i, faixa, buscador, operario, pendentes)
+                except Exception as outra:  # noqa: BLE001
+                    andamento.erros.append(f"{faixa} — {type(outra).__name__}: {outra}")
             except ErroSlskd as erro:
                 # O slskd morre sozinho de vez em quando: ele tem um defeito conhecido
                 # no caminho de desistir de entrar numa fila remota (exceção fatal que
@@ -259,6 +277,65 @@ class TarefaDeDownload(QThread):
             self.progrediu.emit(andamento)
 
         self._recolher(operario, pendentes, destino, andamento, bloquear=True)
+
+    #: Quanto esperar a rede voltar sozinha antes de mexer no motor. O log mostra
+    #: reconexões em menos de um segundo; dois minutos é folga larga.
+    ESPERA_PELA_REDE_S = 120.0
+    #: E quanto esperar depois de reiniciar o motor — aí ele precisa subir, logar e
+    #: montar o cache de compartilhados.
+    ESPERA_DEPOIS_DE_REINICIAR_S = 180.0
+
+    def _esperar_a_rede(self, cliente, andamento: Andamento) -> bool:
+        """Espera o motor voltar para a rede Soulseek. Devolve se dá para continuar.
+
+        Esta é a diferença entre perder 14 faixas e não perder nenhuma. Em 01/11 o
+        slskd travou em "Disconnecting" e ficou assim: a porta HTTP continuava
+        respondendo (por isso `porta_atende()` dizia que estava tudo bem), mas toda
+        busca voltava **409 — "must be connected and logged in"**. O app insistiu três
+        vezes por faixa e marcou 14 faixas como "não vieram" sem procurar nenhuma.
+
+        A ordem agora é: esperar voltar sozinho → se não voltar, reiniciar o motor →
+        esperar logar de novo. Só depois disso é que desistir é honesto.
+        """
+        self.quedas_de_rede += 1
+        andamento.recado = (
+            f"o motor saiu da rede Soulseek — esperando voltar "
+            f"({self.quedas_de_rede}ª vez, até {int(self.ESPERA_PELA_REDE_S)}s)..."
+        )
+        self.progrediu.emit(andamento)
+
+        if cliente.esperar_rede(espera_max_s=self.ESPERA_PELA_REDE_S):
+            andamento.recado = "de volta à rede Soulseek"
+            self.progrediu.emit(andamento)
+            return True
+
+        if self.motor is None:
+            andamento.recado = "o motor saiu da rede e não tenho como reiniciá-lo daqui"
+            self.progrediu.emit(andamento)
+            return False
+
+        if not getattr(self.motor, "fomos_nos", True):
+            # slskd aberto à mão não é nosso para matar. Mas calar aqui deixaria o
+            # usuário olhando uma corrida parada sem saber o que fazer.
+            andamento.recado = (
+                "o motor saiu da rede e ele não foi aberto por este app — "
+                "feche o slskd e ligue de novo pela aba Motor"
+            )
+            self.progrediu.emit(andamento)
+            return False
+
+        andamento.recado = "a rede não voltou — reiniciando o motor..."
+        self.progrediu.emit(andamento)
+        self.religadas += 1
+        self.motor.desligar()
+        self.motor.ligar()
+
+        voltou = cliente.esperar_rede(espera_max_s=self.ESPERA_DEPOIS_DE_REINICIAR_S)
+        andamento.recado = (
+            "de volta à rede Soulseek" if voltou else "o motor não voltou para a rede"
+        )
+        self.progrediu.emit(andamento)
+        return voltou
 
     def _religar_motor(self, andamento: Andamento) -> bool:
         """Religa o slskd se ele tiver morrido. Devolve se voltou ao ar.

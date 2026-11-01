@@ -53,6 +53,27 @@ class ErroSlskd(Exception):
     """Algo deu errado falando com o slskd. A mensagem é para aparecer na tela."""
 
 
+class SemRedeSoulseek(ErroSlskd):
+    """O motor está de pé, mas **fora da rede Soulseek**.
+
+    É um erro completamente diferente dos outros, e confundir os dois custou uma
+    playlist inteira. O slskd responde **HTTP 409** nos dois casos:
+
+    * ocupado com uma busca anterior → esperar 3 segundos e repetir resolve;
+    * desconectado do servidor Soulseek → repetir é inútil, e **toda** busca feita
+      nesse estado volta vazia.
+
+    Só o corpo da resposta distingue. Sem distinguir, o app tratou "fora da rede" como
+    "ocupado": insistiu três vezes por faixa, desistiu, e marcou 14 faixas seguidas como
+    "não vieram" — quando a verdade é que nenhuma delas chegou a ser procurada.
+    """
+
+
+#: Como o slskd diz, no corpo do 409, que não está na rede. A frase vem da biblioteca
+#: Soulseek.NET (`SoulseekClient.SearchAsync`), não do slskd, e por isso é estável.
+_FORA_DA_REDE = "must be connected and logged in"
+
+
 #: Códigos de erro de socket que querem dizer "o sistema está sem fôlego, espere".
 #: 10055 é o WSAENOBUFS do Windows — sem espaço de buffer ou fila cheia. Ele apareceu
 #: numa playlist de 425 faixas e derrubou a corrida pela metade.
@@ -241,6 +262,11 @@ class ClienteSlskd:
         self.tentativas_sem_folego = tentativas_sem_folego
         self.espera_sem_folego_s = espera_sem_folego_s
         self._conexao = _ConexaoViva(self.base, tempo_limite_s)
+        #: Buscas que estouraram o tempo e não puderam ser apagadas na hora.
+        self._deixadas_para_tras = 0
+
+    #: De quantas em quantas buscas deixadas para trás vale rodar a faxina.
+    FAXINA_A_CADA = 10
 
     def fechar(self) -> None:
         """Encerra a conexão. Chamar ao terminar — sobretudo em corridas longas."""
@@ -288,10 +314,16 @@ class ClienteSlskd:
         if status >= 400:
             # O corpo da resposta entra na mensagem. Sem ele, um HTTP 500 vira "deu
             # erro" e não há o que investigar — foi o que aconteceu num download real.
-            raise ErroSlskd(
-                f"O slskd respondeu HTTP {status} em {caminho}."
-                + (f" Disse: {texto[:300]}" if texto else "")
+            recado = f"O slskd respondeu HTTP {status} em {caminho}." + (
+                f" Disse: {texto[:300]}" if texto else ""
             )
+            # Ler o CORPO é o que separa "ocupado" de "fora da rede". Os dois são 409.
+            if _FORA_DA_REDE in texto:
+                raise SemRedeSoulseek(
+                    "O motor está de pé, mas saiu da rede Soulseek — nenhuma busca "
+                    f"funciona enquanto ele não voltar. ({recado})"
+                )
+            raise ErroSlskd(recado)
 
         return status, (json.loads(texto) if texto else None)
 
@@ -312,6 +344,31 @@ class ClienteSlskd:
     def usuario_logado(self) -> str:
         return (self.estado().get("server") or {}).get("username") or ""
 
+    def esperar_rede(self, espera_max_s: float = 180.0, passo_s: float = 5.0) -> bool:
+        """Espera o motor voltar para a rede Soulseek. Devolve se voltou.
+
+        O slskd reconecta sozinho na maioria das quedas — o log do usuário mostra várias
+        reconexões em segundos. Esperar é quase sempre melhor que desistir da faixa:
+        cada faixa que morre aqui é uma faixa que *existia* na rede e não foi procurada.
+
+        Mas nem sempre volta. No dia 01/11 ele ficou preso em "Disconnecting" por mais
+        de oito minutos, sem nunca se desconectar de fato nem reconectar. Por isso há
+        tempo-limite, e por isso quem chama precisa saber reiniciar o motor.
+        """
+        gasto = 0.0
+        while gasto < espera_max_s:
+            try:
+                if self.conectado():
+                    return True
+            except ErroSlskd:
+                pass  # o motor pode estar subindo; insistir é o certo aqui
+            self._dormir(passo_s)
+            gasto += passo_s
+        try:
+            return self.conectado()
+        except ErroSlskd:
+            return False
+
     # ----------------------------------------------------------------- busca
 
     def buscar(self, texto: str, espera_max_s: float = 25.0) -> list[Candidato]:
@@ -324,16 +381,38 @@ class ClienteSlskd:
         self.limitador.aguardar_vez()
 
         busca_id = self._abrir_busca(texto)
+        terminou = False
         try:
-            self._esperar_terminar(busca_id, espera_max_s)
+            terminou = bool(self._esperar_terminar(busca_id, espera_max_s).get("isComplete"))
             respostas = self._chamar("GET", f"/searches/{busca_id}/responses") or []
             return candidatos_das_respostas(respostas)
         finally:
-            # Buscas acumulam no slskd; limpar evita a lista crescer sem fim.
-            try:
-                self._chamar("DELETE", f"/searches/{busca_id}")
-            except ErroSlskd:
-                pass
+            # Buscas acumulam no slskd; limpar evita a lista crescer sem fim. Mas só
+            # se ela JÁ TERMINOU.
+            #
+            # Apagar busca em andamento cancela a busca por dentro do slskd, e a tarefa
+            # dele que ia gravar o resultado quebra num
+            # `DbUpdateConcurrencyException: ...affected 0 row(s); data may have been
+            # modified or deleted`. O log do usuário tem 200 desses, e logo depois de um
+            # deles o cliente Soulseek travou em "Disconnecting" e não voltou mais:
+            # 14 faixas seguidas morreram sem nem serem procuradas.
+            #
+            # O tempo-limite de 25 s é generoso para uma busca, mas estourá-lo é normal.
+            # Quando estoura, a busca fica para a faxina de `_limpar_buscas_terminadas`,
+            # que só apaga o que está marcado como completo.
+            if terminou:
+                try:
+                    self._chamar("DELETE", f"/searches/{busca_id}")
+                except ErroSlskd:
+                    pass
+            else:
+                # Deixadas para trás acumulam. A faxina só apaga o que o slskd já
+                # marcou como completo, então ela é segura — mas custa uma chamada,
+                # por isso não roda a cada busca.
+                self._deixadas_para_tras += 1
+                if self._deixadas_para_tras >= self.FAXINA_A_CADA:
+                    self._deixadas_para_tras = 0
+                    self._limpar_buscas_terminadas()
 
     def _abrir_busca(self, texto: str, tentativas: int = 3) -> str:
         """Abre a busca no slskd, insistindo quando ele responde 409.
@@ -351,6 +430,11 @@ class ClienteSlskd:
             try:
                 self._chamar("POST", "/searches", {"id": busca_id, "searchText": texto})
                 return busca_id
+            except SemRedeSoulseek:
+                # Também é 409, e insistir não adianta nada: sem rede, as três tentativas
+                # só queimam nove segundos para chegar na mesma resposta. Quem chama
+                # precisa saber disto para ESPERAR a rede voltar, não para desistir.
+                raise
             except ErroSlskd as erro:
                 if "HTTP 409" not in str(erro):
                     raise

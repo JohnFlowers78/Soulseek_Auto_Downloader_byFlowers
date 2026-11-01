@@ -235,3 +235,134 @@ def test_pedir_para_parar_e_respeitado(app, tmp_path):
 
     t.pedir_para_parar()
     assert t._parar
+
+
+# ------------------------------------------------ fora da rede Soulseek
+
+
+class ClienteFalso:
+    """O motor de pé, mas fora da rede. A porta responde; a rede, não."""
+
+    def __init__(self, volta=True):
+        self.volta = volta
+        self.esperas = 0
+
+    def esperar_rede(self, espera_max_s=180.0, passo_s=5.0):
+        self.esperas += 1
+        return self.volta
+
+
+def test_espera_a_rede_voltar_antes_de_mexer_no_motor(app, tmp_path):
+    """Reiniciar o motor por uma queda que se resolve sozinha é estrago gratuito.
+
+    O log mostra reconexões em menos de um segundo.
+    """
+    motor = MotorFalso()
+    t = tarefa(app, motor=motor, tmp_path=tmp_path)
+    cliente = ClienteFalso(volta=True)
+    andamento = Andamento()
+
+    assert t._esperar_a_rede(cliente, andamento)
+    assert motor.ligou == 0, "a rede voltou sozinha — o motor não tinha que ser tocado"
+    assert "de volta à rede" in andamento.recado
+
+
+def test_rede_que_nao_volta_faz_reiniciar_o_motor(app, tmp_path):
+    # Travado em "Disconnecting" por oito minutos: esperar mais não resolve.
+    class MotorQueVolta(MotorFalso):
+        def __init__(self):
+            super().__init__()
+            self.desligou = 0
+
+        def desligar(self):
+            self.desligou += 1
+
+    motor = MotorQueVolta()
+    t = tarefa(app, motor=motor, tmp_path=tmp_path)
+
+    class ClienteQueVoltaDepois(ClienteFalso):
+        def esperar_rede(self, espera_max_s=180.0, passo_s=5.0):
+            self.esperas += 1
+            return self.esperas > 1  # só volta depois do reinício
+
+    assert t._esperar_a_rede(ClienteQueVoltaDepois(), Andamento())
+    assert motor.desligou == 1 and motor.ligou == 1
+
+
+def test_sem_motor_nao_tem_como_reiniciar(app, tmp_path):
+    t = tarefa(app, motor=None, tmp_path=tmp_path)
+    andamento = Andamento()
+
+    assert not t._esperar_a_rede(ClienteFalso(volta=False), andamento)
+    assert "não tenho como reiniciá-lo" in andamento.recado
+
+
+def test_motor_de_fora_nao_e_reiniciado_mas_o_usuario_e_avisado(app, tmp_path):
+    # slskd aberto à mão não é nosso para matar — mas calar deixaria a corrida parada
+    # sem o usuário saber o que fazer.
+    motor = MotorFalso()
+    motor.fomos_nos = False
+    t = tarefa(app, motor=motor, tmp_path=tmp_path)
+    andamento = Andamento()
+
+    assert not t._esperar_a_rede(ClienteFalso(volta=False), andamento)
+    assert motor.ligou == 0
+    assert "aba Motor" in andamento.recado
+
+
+def test_conta_as_quedas_de_rede(app, tmp_path):
+    t = tarefa(app, tmp_path=tmp_path)
+    t._esperar_a_rede(ClienteFalso(), Andamento())
+    t._esperar_a_rede(ClienteFalso(), Andamento())
+
+    assert t.quedas_de_rede == 2
+
+
+def test_sem_rede_a_corrida_para_em_vez_de_queimar_as_faixas(app, tmp_path, monkeypatch):
+    """O defeito que custou uma playlist inteira.
+
+    Sem rede nenhuma busca funciona. O app insistia faixa após faixa e marcava 14
+    seguidas como "não vieram" — todas sem terem sido procuradas uma única vez. Agora
+    ele para, e as faixas que sobraram continuam na lista "A fazer", que é a verdade.
+    """
+    from slskd_cliente import SemRedeSoulseek
+
+    t = tarefa(app, tmp_path=tmp_path)
+    monkeypatch.setattr(t, "_esperar_a_rede", lambda *_a: False)
+    monkeypatch.setattr(t, "_recolher", lambda *_a, **_k: None)
+
+    def cair(*_a):
+        raise SemRedeSoulseek("fora da rede")
+
+    monkeypatch.setattr(t, "_uma_faixa", cair)
+    andamento = Andamento()
+
+    t._correr(ClienteFalso(), [f"Faixa {i}" for i in range(1, 28)], andamento, tmp_path)
+
+    assert andamento.indice == 1, "parou na primeira, não queimou as 27"
+    assert t.contabilizadas == 0
+    assert andamento.erros == [], "faixa não procurada não é faixa que falhou"
+    assert "27 faixas restantes" in andamento.recado
+
+
+def test_com_a_rede_de_volta_a_faixa_e_tentada_outra_vez(app, tmp_path, monkeypatch):
+    from slskd_cliente import SemRedeSoulseek
+
+    t = tarefa(app, tmp_path=tmp_path)
+    monkeypatch.setattr(t, "_esperar_a_rede", lambda *_a: True)
+    monkeypatch.setattr(t, "_recolher", lambda *_a, **_k: None)
+
+    tentativas: list[str] = []
+
+    def cair_so_na_primeira(chave, faixa, *_a):
+        tentativas.append(str(faixa))
+        if len(tentativas) == 1:
+            raise SemRedeSoulseek("fora da rede")
+
+    monkeypatch.setattr(t, "_uma_faixa", cair_so_na_primeira)
+    andamento = Andamento()
+
+    t._correr(ClienteFalso(), ["Faixa 1", "Faixa 2"], andamento, tmp_path)
+
+    assert tentativas == ["Faixa 1", "Faixa 1", "Faixa 2"]
+    assert andamento.erros == []
