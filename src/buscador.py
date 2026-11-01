@@ -14,7 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from modelos import Candidato, Faixa
-from normalizador import Variante, artista_aparece_em, gerar_variantes
+from normalizador import (
+    Variante,
+    artista_aparece_em,
+    gerar_variantes,
+    titulo_aparece_em,
+)
 from qualidade import Avaliacao, Criterios, escolher_melhores, ranquear, reprovados
 from slskd_cliente import ClienteSlskd
 
@@ -37,6 +42,9 @@ class ResultadoDaBusca:
     #: demais descartes porque contam outra história: a música existe na rede, com esse
     #: nome, mas não é a sua.
     de_outro_artista: list[Candidato] = field(default_factory=list)
+    #: Barrados por serem **outra música do artista certo** — o caso de buscar
+    #: "Djavan ficar" e receber "Tenho Medo de Ficar Só".
+    de_outra_musica: list[Candidato] = field(default_factory=list)
     #: Os que vão para a fila de download.
     escolhidos: list[Avaliacao] = field(default_factory=list)
 
@@ -61,6 +69,11 @@ class ResultadoDaBusca:
                 f"⚠️ {self.faixa} — achou {len(self.descartados)}, "
                 f"nenhum passou no filtro ({self.buscas_gastas} busca(s))"
             )
+        if self.de_outra_musica:
+            return (
+                f"❌ {self.faixa} — achou {len(self.de_outra_musica)} do artista certo, "
+                f"mas de outra música ({self.buscas_gastas} busca(s))"
+            )
         if self.de_outro_artista:
             return (
                 f"❌ {self.faixa} — achou {len(self.de_outro_artista)} com esse nome, "
@@ -76,7 +89,7 @@ class Buscador:
         criterios: Criterios | None = None,
         quantidade_por_faixa: int = 2,
         max_variantes: int = 4,
-        conferir_artista: bool = True,
+        conferir_nomes: bool = True,
     ):
         """`max_variantes` limita quantas formas tentar antes de desistir.
 
@@ -88,7 +101,7 @@ class Buscador:
         self.criterios = criterios
         self.quantidade_por_faixa = quantidade_por_faixa
         self.max_variantes = max_variantes
-        self.conferir_artista = conferir_artista
+        self.conferir_nomes = conferir_nomes
 
     def buscar_faixa(self, faixa: Faixa) -> ResultadoDaBusca:
         resultado = ResultadoDaBusca(faixa=faixa)
@@ -100,18 +113,14 @@ class Buscador:
             if not candidatos:
                 continue
 
-            # Confere o artista de volta ANTES de qualquer outra coisa. A variante
-            # `so_titulo` busca sem o artista de propósito, e sem esta peneira o app
-            # baixa a música certa do cantor errado — já aconteceu.
-            if self.conferir_artista and faixa.artista:
-                do_artista, de_outros = [], []
-                for candidato in candidatos:
-                    alvo = do_artista if artista_aparece_em(candidato.caminho, faixa.artista) else de_outros
-                    alvo.append(candidato)
-                resultado.de_outro_artista.extend(de_outros)
-                candidatos = do_artista
-                if not candidatos:
-                    continue
+            # Confere artista e título de volta ANTES de qualquer outra coisa. As duas
+            # peneiras existem porque as variantes largas jogam fora metade do par:
+            # `so_titulo` busca sem o artista, `artista_palavra_chave` busca com só uma
+            # ou duas palavras do título. Sem conferir, o app baixa a música certa do
+            # cantor errado, ou a música errada do cantor certo — as duas já aconteceram.
+            candidatos = self._peneirar(candidatos, faixa, variante, resultado)
+            if not candidatos:
+                continue
 
             aprovados = ranquear(candidatos, faixa.duracao_s, self.criterios)
             if not aprovados:
@@ -127,6 +136,33 @@ class Buscador:
             return resultado
 
         return resultado
+
+    #: Variantes que buscam com **menos palavras do título** do que a faixa tem. Só
+    #: nelas o título precisa ser conferido de volta: nas demais a consulta já levou o
+    #: título inteiro, então quem filtrou foi o próprio servidor do Soulseek.
+    ESTRATEGIAS_QUE_ENCURTAM_O_TITULO = ("artista_palavra_chave", "nucleo")
+
+    def _peneirar(
+        self,
+        candidatos: list[Candidato],
+        faixa: Faixa,
+        variante: Variante,
+        resultado: ResultadoDaBusca,
+    ) -> list[Candidato]:
+        if not self.conferir_nomes:
+            return candidatos
+
+        conferir_titulo = variante.estrategia in self.ESTRATEGIAS_QUE_ENCURTAM_O_TITULO
+        sobreviventes = []
+        for candidato in candidatos:
+            if faixa.artista and not artista_aparece_em(candidato.caminho, faixa.artista):
+                resultado.de_outro_artista.append(candidato)
+                continue
+            if conferir_titulo and not titulo_aparece_em(candidato.nome_arquivo, faixa.titulo):
+                resultado.de_outra_musica.append(candidato)
+                continue
+            sobreviventes.append(candidato)
+        return sobreviventes
 
     def buscar_varias(self, faixas: list[Faixa]) -> list[ResultadoDaBusca]:
         """Busca uma lista inteira. Demora o que o limitador mandar."""

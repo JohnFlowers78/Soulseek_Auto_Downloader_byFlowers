@@ -61,9 +61,10 @@ def test_enfileira_os_escolhidos(tmp_path):
     cliente = ClienteFalso()
     escolhidos = [avaliar(candidato("a.flac", "joao")), avaliar(candidato("b.flac", "maria"))]
 
-    aceitos = baixador(cliente, tmp_path).enfileirar(escolhidos)
+    fila = baixador(cliente, tmp_path).enfileirar(escolhidos)
 
-    assert len(aceitos) == 2
+    assert len(fila.aceitos) == 2
+    assert fila.recusados == []
     assert len(cliente.enfileirados) == 2
 
 
@@ -72,13 +73,21 @@ def test_um_usuario_que_sumiu_nao_derruba_os_outros(tmp_path):
     cliente = ClienteFalso(recusar={"joao"})
     escolhidos = [avaliar(candidato("a.flac", "joao")), avaliar(candidato("b.flac", "maria"))]
 
-    aceitos = baixador(cliente, tmp_path).enfileirar(escolhidos)
+    fila = baixador(cliente, tmp_path).enfileirar(escolhidos)
 
-    assert [c.usuario for c in aceitos] == ["maria"]
+    assert [c.usuario for c in fila.aceitos] == ["maria"]
+    # O motivo tem que vir junto: a versao anterior engolia a excecao e o app imprimia
+    # um palpite inventado ("os usuarios podem ter saido do ar").
+    assert len(fila.recusados) == 1
+    recusado, motivo = fila.recusados[0]
+    assert recusado.usuario == "joao"
+    assert "usuário sumiu" in motivo
 
 
 def test_enfileirar_lista_vazia(tmp_path):
-    assert baixador(ClienteFalso(), tmp_path).enfileirar([]) == []
+    fila = baixador(ClienteFalso(), tmp_path).enfileirar([])
+    assert fila.aceitos == []
+    assert not fila
 
 
 # --------------------------------------------------------------- lote

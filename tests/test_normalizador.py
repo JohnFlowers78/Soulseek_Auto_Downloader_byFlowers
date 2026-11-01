@@ -18,6 +18,7 @@ from normalizador import (
     sem_parenteses,
     sem_participacao,
     sem_pontuacao,
+    titulo_aparece_em,
 )
 
 
@@ -354,6 +355,43 @@ def test_artista_que_vira_nada_depois_de_limpar_nao_reprova():
 
 def test_barra_normal_tambem_funciona():
     assert artista_aparece_em("/home/x/Djavan/Luz/04.flac", "Djavan")
+
+
+# ---------------------------------------------------------- conferir o título
+
+# O caso real: pedindo "Djavan — Não Vou Ficar", a variante `artista_palavra_chave`
+# buscou "Djavan ficar" e trouxe "Tenho Medo de Ficar Só" — do Djavan mesmo.
+# Artista certo, música errada.
+
+
+def test_barra_outra_musica_do_mesmo_artista():
+    assert not titulo_aparece_em("04 - Tenho medo de ficar só.flac", "Não Vou Ficar")
+    assert not titulo_aparece_em("0104 - Tenho Medo de Ficar Só.flac", "Não Vou Ficar")
+
+
+def test_aceita_o_titulo_certo():
+    assert titulo_aparece_em("04 - Não Vou Ficar.flac", "Não Vou Ficar")
+    assert titulo_aparece_em("05 - Nao Vou Ficar.flac", "Não Vou Ficar")
+    assert titulo_aparece_em("1-03 - Malemolência.flac", "Malemolência")
+
+
+def test_o_mix_entre_parenteses_nao_e_exigido():
+    # Quem compartilha nem sempre escreve "(Original Mix)" no nome. Exigir reprovaria
+    # o arquivo certo.
+    assert titulo_aparece_em("One More Time.flac", "One More Time (Original Mix)")
+    assert titulo_aparece_em("Se.flac", "Se (feat. Alcione)")
+
+
+def test_o_titulo_pode_vir_com_numeracao_e_sujeira_em_volta():
+    assert titulo_aparece_em("Céu - CéU - 03 - Malemolência.flac", "Malemolência")
+
+
+def test_falta_de_uma_palavra_do_titulo_reprova():
+    assert not titulo_aparece_em("04 - Vou Ficar.flac", "Não Vou Ficar")
+
+
+def test_titulo_vazio_nao_reprova_nada():
+    assert titulo_aparece_em("qualquer coisa.flac", "")
 
 
 # ----------------------------------------------------------------- nome de pasta

@@ -23,6 +23,17 @@ ESPERA_PADRAO_S = 600.0
 
 
 @dataclass
+class Enfileiramento:
+    """O que o slskd aceitou pôr na fila, e o que recusou — com o motivo de cada recusa."""
+
+    aceitos: list[Candidato] = field(default_factory=list)
+    recusados: list[tuple[Candidato, str]] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.aceitos)
+
+
+@dataclass
 class Lote:
     """Um conjunto de downloads acompanhado junto."""
 
@@ -69,21 +80,26 @@ class Baixador:
 
     # ----------------------------------------------------------- enfileirar
 
-    def enfileirar(self, escolhidos: list[Avaliacao]) -> list[Candidato]:
-        """Põe os escolhidos na fila. Devolve os que o slskd aceitou.
+    def enfileirar(self, escolhidos: list[Avaliacao]) -> Enfileiramento:
+        """Põe os escolhidos na fila. Devolve o que entrou e o que não entrou, **com o motivo**.
 
         Uma recusa não derruba as outras: se um usuário saiu do ar entre a busca e o
         download, as demais opções daquela faixa continuam valendo — e é exatamente
         para isso que baixamos de usuários diferentes.
+
+        O motivo volta junto porque a versão anterior engolia a exceção e imprimia um
+        palpite ("os usuários podem ter saído do ar"). Palpite apresentado como
+        diagnóstico é pior que erro nenhum: manda quem está depurando para o lado errado.
         """
-        aceitos = []
+        resultado = Enfileiramento()
         for avaliacao in escolhidos:
+            candidato = avaliacao.candidato
             try:
-                self.cliente.enfileirar(avaliacao.candidato)
-                aceitos.append(avaliacao.candidato)
-            except Exception:  # noqa: BLE001 — qualquer falha aqui é "esse não deu"
-                continue
-        return aceitos
+                self.cliente.enfileirar(candidato)
+                resultado.aceitos.append(candidato)
+            except Exception as erro:  # noqa: BLE001 — o motivo é guardado, não escondido
+                resultado.recusados.append((candidato, f"{type(erro).__name__}: {erro}"))
+        return resultado
 
     # ----------------------------------------------------------- acompanhar
 

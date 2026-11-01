@@ -194,6 +194,29 @@ def artista_aparece_em(caminho: str, artista: str) -> bool:
     return all(palavra in presentes for palavra in palavras_do_artista)
 
 
+def titulo_aparece_em(nome_arquivo: str, titulo: str) -> bool:
+    """O título pedido aparece no nome do arquivo achado?
+
+    Companheira de `artista_aparece_em`, e nascida do mesmo jeito: depois de conferir o
+    artista, o app pediu *Djavan — Não Vou Ficar*, a variante ``artista_palavra_chave``
+    buscou ``Djavan ficar``, e veio **Tenho Medo de Ficar Só** — do Djavan mesmo, com
+    "ficar" no nome. Artista certo, título errado.
+
+    Confere só o **nome do arquivo**, não o caminho: o título está no nome, e usar a
+    pasta deixaria passar qualquer faixa de um álbum que se chame como a música.
+
+    O que vale é o **núcleo** do título — sem participação e sem parênteses. Exigir
+    ``(Original Mix)`` reprovaria o arquivo certo de quem não escreveu isso no nome.
+    """
+    nucleo = sem_parenteses(sem_participacao(titulo or ""))
+    palavras_do_titulo = palavras_uteis(nucleo)
+    if not palavras_do_titulo:
+        return True
+
+    presentes = set(sem_pontuacao(sem_acentos(nome_arquivo)).casefold().split())
+    return all(palavra in presentes for palavra in palavras_do_titulo)
+
+
 def nome_pasta_segura(nome: str, tamanho_maximo: int = 120) -> str:
     """Transforma o nome da playlist em nome de pasta que o Windows aceita.
 

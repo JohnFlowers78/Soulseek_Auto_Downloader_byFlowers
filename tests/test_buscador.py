@@ -195,11 +195,43 @@ def test_o_resumo_distingue_artista_errado_de_nada_achado():
     assert "de outro artista" in resumo
 
 
+def test_nao_baixa_outra_musica_do_artista_certo():
+    """O segundo caso real: 'Djavan ficar' trouxe 'Tenho Medo de Ficar Só'.
+
+    A variante `artista_palavra_chave` encurta o título a uma ou duas palavras. O
+    artista bate, e sem conferir o título o app baixa a faixa errada do cantor certo.
+    """
+    outra = arquivo("04 - Tenho medo de ficar só.flac", "nas")
+    cliente = ClienteFalso(por_consulta={"Djavan ficar": [outra]})
+    resultado = Buscador(cliente).buscar_faixa(FAIXA)
+
+    assert not resultado.achou
+    assert len(resultado.de_outra_musica) == 1
+    assert resultado.de_outro_artista == []
+
+
+def test_a_variante_fiel_nao_sofre_conferencia_de_titulo():
+    # Nela a consulta já levou o título inteiro — quem filtrou foi o servidor do
+    # Soulseek. Conferir de novo só reprovaria arquivo com nome abreviado.
+    curto = arquivo("NaoVouFicar.flac")
+    cliente = ClienteFalso(por_consulta={"Djavan Não Vou Ficar": [curto]})
+    resultado = Buscador(cliente).buscar_faixa(FAIXA)
+
+    assert resultado.achou
+
+
+def test_o_resumo_distingue_outra_musica_de_outro_artista():
+    cliente = ClienteFalso(
+        por_consulta={"Djavan ficar": [arquivo("Tenho medo de ficar só.flac")]}
+    )
+    assert "de outra música" in Buscador(cliente).buscar_faixa(FAIXA).resumo()
+
+
 def test_da_para_desligar_a_conferencia():
     # Fica configurável porque acervo mal catalogado (sem pasta de artista) seria
     # reprovado por inteiro — e aí o usuário decide o que prefere.
     cliente = ClienteFalso(padrao=[de_outro("x.flac", "Kid Abelha")])
-    resultado = Buscador(cliente, conferir_artista=False).buscar_faixa(FAIXA)
+    resultado = Buscador(cliente, conferir_nomes=False).buscar_faixa(FAIXA)
 
     assert resultado.achou
 

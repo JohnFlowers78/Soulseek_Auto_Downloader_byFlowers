@@ -71,6 +71,14 @@ def _mostrar_achados(resultado) -> None:
             print(f"  ✗ {avaliacao.candidato.nome_arquivo}")
             print(f"     {avaliacao.motivo}")
 
+    if resultado.de_outra_musica:
+        print(
+            f"\n🚫 {len(resultado.de_outra_musica)} arquivo(s) do artista certo, mas de "
+            "OUTRA música — barrados:"
+        )
+        for candidato in resultado.de_outra_musica[:6]:
+            print(f"  · {candidato.nome_arquivo}")
+
     if resultado.de_outro_artista:
         print(
             f"\n🚫 {len(resultado.de_outro_artista)} arquivo(s) com esse nome, mas de "
@@ -180,12 +188,18 @@ def main(argumentos: list[str]) -> int:
     destino = Path(config.pasta_mae_playlists) / PASTA_DAS_AVULSAS / nome_pasta_segura(str(faixa))
 
     operario = Baixador(cliente, passagem)
-    aceitos = operario.enfileirar(resultado.escolhidos)
-    if not aceitos:
-        print("Nenhum dos escolhidos foi aceito — os usuários podem ter saído do ar.")
+    fila = operario.enfileirar(resultado.escolhidos)
+
+    for candidato, motivo in fila.recusados:
+        print(f"\n   ⚠ o slskd recusou {candidato.nome_arquivo}")
+        print(f"     de {candidato.usuario} — {motivo}")
+
+    if not fila.aceitos:
+        print("\nNenhum dos escolhidos entrou na fila. O motivo está logo acima.")
         return 1
-    print(f"\n{len(aceitos)} na fila. Acompanhando (Ctrl+C para parar de olhar)...\n")
-    lote = operario.acompanhar(aceitos, ao_progredir=_mostrar_progresso())
+
+    print(f"\n{len(fila.aceitos)} na fila. Acompanhando (Ctrl+C para parar de olhar)...\n")
+    lote = operario.acompanhar(fila.aceitos, ao_progredir=_mostrar_progresso())
 
     movidos = operario.organizar(lote, destino)
     print()
