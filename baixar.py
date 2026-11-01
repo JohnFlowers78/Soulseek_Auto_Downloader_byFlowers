@@ -2,6 +2,7 @@
 
     python baixar.py "Djavan" "Não Vou Ficar"
     python baixar.py "Djavan - Não Vou Ficar"
+    python baixar.py "https://open.spotify.com/track/<id>"
 
 Escreva o nome **completo e bonito**, com todo acento, apóstrofo, hífen e til que a
 música realmente tem. Não "limpe" nada: é justamente da grafia completa que saem as
@@ -27,6 +28,12 @@ from config import Config  # noqa: E402
 # O mesmo extrator que lê nome de arquivo serve para o nome digitado: ele divide em
 # " - ", respeita hífen dentro do nome da banda (Blink-182) e tira selo de qualidade.
 from leitor_pasta import extrair_do_nome  # noqa: E402
+from leitor_spotify import (  # noqa: E402
+    ErroSpotify,
+    LeitorSpotify,
+    acesso_a_partir_do_refresh,
+    extrair_id_da_faixa,
+)
 from modelos import EstadoTransferencia, Faixa  # noqa: E402
 from normalizador import nome_pasta_segura  # noqa: E402
 from qualidade import Criterios  # noqa: E402
@@ -140,13 +147,30 @@ def main(argumentos: list[str]) -> int:
     if not nomes:
         print(__doc__)
         return 2
-    if len(nomes) >= 2:
-        artista, titulo = nomes[0], nomes[1]
+    config = Config.carregar()
+
+    # Link de música do Spotify? Então a faixa vem com DURAÇÃO — e é ela que separa a
+    # gravação certa de um remix ou de um ao vivo de mesmo nome. Digitar à mão não traz.
+    if len(nomes) == 1 and extrair_id_da_faixa(nomes[0]):
+        try:
+            acesso, refresh = acesso_a_partir_do_refresh(
+                config.spotify_client_id, config.spotify_refresh_token
+            )
+            if refresh != config.spotify_refresh_token:
+                config.spotify_refresh_token = refresh
+                config.salvar()
+            faixa = LeitorSpotify(acesso).faixa_avulsa(nomes[0])
+            print(f"🔗 link do Spotify reconhecido: {faixa}")
+            if faixa.duracao_s:
+                print(f"   duração {faixa.duracao_s:.0f}s — o filtro de versão fica ativo")
+        except ErroSpotify as erro:
+            print(f"❌ {erro}")
+            return 1
+    elif len(nomes) >= 2:
+        faixa = Faixa(artista=nomes[0], titulo=nomes[1])
     else:
         artista, titulo = extrair_do_nome(nomes[0])
-    faixa = Faixa(artista=artista, titulo=titulo)
-
-    config = Config.carregar()
+        faixa = Faixa(artista=artista, titulo=titulo)
     if not config.pasta_mae_playlists.strip():
         print("Falta definir a pasta das playlists nas Configurações (python app.py).")
         return 1

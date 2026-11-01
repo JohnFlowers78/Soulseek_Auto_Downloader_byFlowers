@@ -103,6 +103,23 @@ class Baixador:
 
     # ----------------------------------------------------------- acompanhar
 
+    def conferir(self, candidatos: list[Candidato]) -> Lote:
+        """Uma consulta só, **sem esperar nada**. Devolve a foto do momento.
+
+        É o que permite buscar a próxima faixa enquanto a anterior baixa. Esperar cada
+        download terminar antes de buscar a seguinte deixava a rede parada: o limitador
+        de buscas e os downloads são filas independentes, e serializá-las dobrava o
+        tempo de uma playlist sem nenhum ganho.
+        """
+        por_chave = {
+            (c.usuario, c.nome_arquivo): Transferencia(candidato=c) for c in candidatos
+        }
+        for atual in self.cliente.downloads():
+            chave = (atual.candidato.usuario, atual.candidato.nome_arquivo)
+            if chave in por_chave:
+                por_chave[chave] = atual
+        return Lote(transferencias=list(por_chave.values()))
+
     def acompanhar(
         self,
         candidatos: list[Candidato],

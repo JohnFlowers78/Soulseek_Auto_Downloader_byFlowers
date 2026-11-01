@@ -23,6 +23,7 @@ from buscador import Buscador, ResultadoDaBusca  # noqa: E402
 from config import Config  # noqa: E402
 from leitor_spotify import ErroSpotify, LeitorSpotify, acesso_a_partir_do_refresh  # noqa: E402
 from normalizador import nome_pasta_segura  # noqa: E402
+from politica import Foco, resumir_politica  # noqa: E402
 from qualidade import Criterios  # noqa: E402
 from slskd_cliente import ClienteSlskd, ErroSlskd  # noqa: E402
 
@@ -138,6 +139,25 @@ def _relatorio(
         print(f"(não consegui gravar o relatório: {erro})\n")
 
 
+def _perguntar_foco(argumentos: list[str]) -> Foco:
+    """Pergunta qual formato vai tocar — e portanto ganha a segunda cópia.
+
+    A razão é de pista: tocar sempre o mesmo formato evita que a diferença de
+    qualidade apareça no meio do set. A política traz um de cada tipo de todo jeito;
+    o foco decide para onde vai a vaga extra.
+    """
+    if "--mp3" in argumentos:
+        return Foco.MP3
+    if "--sem-perda" in argumentos or "--sem-perguntar" in argumentos:
+        return Foco.SEM_PERDA
+
+    print()
+    print("Qual formato você vai TOCAR? (a segunda cópia vai para ele)")
+    print("  1 — sem perda: AIFF / WAV / FLAC   [padrão]")
+    print("  2 — MP3 320")
+    return Foco.MP3 if input("Escolha (1/2): ").strip() == "2" else Foco.SEM_PERDA
+
+
 def main(argumentos: list[str]) -> int:
     links = [a for a in argumentos if not a.startswith("--")]
     if not links:
@@ -209,8 +229,12 @@ def main(argumentos: list[str]) -> int:
         print(f"\n❌ {erro}")
         return 1
 
+    foco = _perguntar_foco(argumentos)
     buscador = Buscador(
-        cliente, criterios=_criterios(config), quantidade_por_faixa=config.quantidade_por_faixa
+        cliente,
+        criterios=_criterios(config),
+        quantidade_por_faixa=max(3, config.quantidade_por_faixa),
+        foco=foco,
     )
     estimativa = buscador.tempo_estimado_s(len(faixas))
     print(f"\n⏱  Busca: ~{_tempo_legivel(estimativa)} (limite da rede + tempo de cada busca).")
@@ -230,6 +254,9 @@ def main(argumentos: list[str]) -> int:
     lotes: dict = {}
 
     falhas: list[tuple[Faixa, str]] = []
+    #: O que foi enfileirado e ainda não terminou. A busca da próxima faixa **não**
+    #: espera por isto — os downloads correm por conta do slskd enquanto a gente busca.
+    pendentes: dict[int, list] = {}
 
     for i, faixa in enumerate(faixas, 1):
         print(f"\n[{i}/{len(faixas)}] {faixa}")
@@ -237,22 +264,34 @@ def main(argumentos: list[str]) -> int:
         # HTTP 409 do slskd subiu até o topo e levou as outras dez junto. Erro de uma
         # faixa é problema daquela faixa — nunca da corrida.
         try:
-            resultado = _processar(faixa, buscador, operario, destino, lotes)
+            resultado = _buscar_e_enfileirar(faixa, buscador, operario, pendentes)
             resultados.append(resultado)
         except KeyboardInterrupt:
             raise
         except Exception as erro:  # noqa: BLE001 — o motivo vai para o relatório
             falhas.append((faixa, f"{type(erro).__name__}: {erro}"))
             print(f"   💥 falhou: {erro}")
+            continue
+
+        # Confere de passagem o que já terminou, sem esperar por nada.
+        _recolher(operario, pendentes, lotes, destino, bloquear=False)
+
+    # No fim, aí sim espera o que ficou faltando.
+    if pendentes:
+        print(f"\nTerminando {len(pendentes)} download(s) que ainda estão correndo...")
+        _recolher(operario, pendentes, lotes, destino, bloquear=True)
 
     _relatorio(nome, resultados, lotes, destino, falhas)
     return 0
 
 
-def _processar(faixa, buscador, operario, destino, lotes) -> ResultadoDaBusca:
-    """Busca, enfileira, acompanha e organiza **uma** faixa."""
+def _buscar_e_enfileirar(faixa, buscador, operario, pendentes) -> ResultadoDaBusca:
+    """Busca **uma** faixa e põe na fila — sem esperar o download."""
     resultado = buscador.buscar_faixa(faixa)
     print(f"   {resultado.resumo()}")
+    if resultado.escolhas:
+        for escolha in resultado.escolhas:
+            print(f"      [{escolha.papel}] {escolha.avaliacao.motivo}")
 
     if not resultado.escolhidos:
         return resultado
@@ -260,14 +299,26 @@ def _processar(faixa, buscador, operario, destino, lotes) -> ResultadoDaBusca:
     fila = operario.enfileirar(resultado.escolhidos)
     for candidato, motivo in fila.recusados:
         print(f"   ⚠ recusado por {candidato.usuario}: {motivo}")
-    if not fila.aceitos:
-        return resultado
-
-    lote = operario.acompanhar(fila.aceitos, espera_max_s=300)
-    lotes[id(resultado)] = lote
-    for caminho in operario.organizar(lote, destino):
-        print(f"   ⬇ {caminho.name}")
+    if fila.aceitos:
+        pendentes[id(resultado)] = fila.aceitos
     return resultado
+
+
+def _recolher(operario, pendentes, lotes, destino, bloquear: bool) -> None:
+    """Move para a pasta o que já terminou. Com `bloquear`, espera o resto."""
+    for chave in list(pendentes):
+        candidatos = pendentes[chave]
+        if bloquear:
+            lote = operario.acompanhar(candidatos, espera_max_s=300)
+        else:
+            lote = operario.conferir(candidatos)
+
+        lotes[chave] = lote
+        for caminho in operario.organizar(lote, destino):
+            print(f"   ⬇ {caminho.name}")
+
+        if bloquear or lote.tudo_terminou:
+            del pendentes[chave]
 
 
 if __name__ == "__main__":

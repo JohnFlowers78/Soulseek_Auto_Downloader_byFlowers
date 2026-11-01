@@ -121,6 +121,49 @@ _Atualizado em: 05/09/2026_
 - [ ] Aviso de tempo: uma pasta de 200 músicas são 200+ buscas → **mais de uma hora** pelo
       limite de 34/220 s. O usuário precisa saber disso antes de começar, não no meio.
 
+## 🎛️ Fase 4b — Tudo na interface, nada no terminal (pedido de 01/11)
+
+> "quero tudo isso que estamos fazendo no terminal mas agora funcionando diretamente
+> dentro da interface do programa, não quero mais nada no terminal. **tudo mesmo**,
+> incluindo o motor do software sem necessitar de um terminal aberto"
+
+- [ ] **Ligar e desligar o slskd pela janela** — o app sobe o processo em segundo
+      plano, sem janela de console, mostra o estado (conectado / logando / parado) e
+      derruba ao fechar. Hoje exige um terminal aberto a sessão inteira.
+- [ ] **Login do Spotify por botão** — abre o navegador, captura o retorno, pronto.
+- [ ] **Sair da conta e entrar em outra**, também por botão. Precisa apagar o refresh
+      token de verdade (`Config.esquecer_segredos()` já existe para isso).
+- [ ] **Botão "cadastrar usuário no meu app do Spotify"** — abre o painel direto na
+      tela de *User Management*. Necessário por causa do teto de 25 usuários do
+      Development Mode (ver abaixo).
+- [ ] **Colar link de playlist** na janela e acompanhar o progresso ali.
+- [ ] **Colar link de música avulsa** na janela.
+- [ ] As três listas e o relatório dentro da tela, não só no `_relatorio.txt`.
+
+> ⚠️ **Teto de 25 usuários (a confirmar na fonte).** App do Spotify nasce em
+> *Development Mode*: só contas cadastradas à mão no painel conseguem autorizar, com
+> limite de 25. Passar disso exige *Extended Quota Mode*, que passa por revisão.
+> Isso limita "baixar playlist de outras pessoas" — **verificar antes de prometer**.
+
+## ⚡ Fase 4c — Menos tempo por playlist
+
+- [x] **Não esperar o download para buscar a próxima** — a busca e o download são
+      filas independentes; serializá-las dobrava o tempo sem ganho nenhum.
+- [ ] **Não rebaixar o que já tenho** — apontar a pasta da coleção inteira e pular
+      (ou só avisar) o que já existe lá. Economiza busca, banda e tempo.
+- [ ] **Índice da coleção em cache**, para a varredura não custar caro a cada corrida.
+- [ ] Medir onde o tempo realmente vai antes de otimizar mais.
+
+## 💿 Fase 4d — Mais opções, e do formato certo
+
+- [x] **Três versões por faixa**, com política: uma sem perda, uma MP3 320, e a
+      segunda cópia no formato em foco.
+- [x] **Perguntar o foco no começo** (MP3 ou sem perda) — para tocar sempre o mesmo
+      formato e a pista não perceber a diferença.
+- [ ] **O formato visível na pasta** — hoje só a extensão diz. Avaliar: etiqueta no
+      nome do arquivo (`... [FLAC].flac`), subpasta por formato, ou ajustar a visão
+      do Explorer. **Decidir junto antes de implementar.**
+
 ## 🕵️ Fase 7 — Caçar o que faltou
 
 - [ ] **Você me ensina** onde ficam escondidos os downloads livres do **Hypeddit** e do

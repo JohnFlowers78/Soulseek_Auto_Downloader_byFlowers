@@ -445,6 +445,26 @@ class LeitorSpotify:
             vistos += 1
         return faixas
 
+    def faixa_avulsa(self, link_ou_id: str) -> Faixa:
+        """Lê **uma** faixa pelo link do Spotify.
+
+        Serve à busca avulsa: colar o link de uma música e deixar o app achar o nome,
+        o artista e — o que mais importa — a **duração**, que é o filtro que separa a
+        gravação certa de um remix ou de uma versão ao vivo homônima. Digitar o nome à
+        mão não traz isso.
+        """
+        id_faixa = extrair_id_da_faixa(link_ou_id)
+        if not id_faixa:
+            raise ErroSpotify(
+                "Não reconheci esse link de música. Espero algo como "
+                "https://open.spotify.com/track/<id>"
+            )
+        dados = self._get(f"{API}/tracks/{id_faixa}")
+        faixa = faixa_do_item({"track": dados})
+        if faixa is None:
+            raise ErroSpotify("O Spotify não devolveu uma música nesse link.")
+        return faixa
+
     def ler(self, link_ou_id: str) -> tuple[str, list[Faixa]]:
         """Devolve `(nome da playlist, faixas)`."""
         id_playlist = extrair_id_da_playlist(link_ou_id)

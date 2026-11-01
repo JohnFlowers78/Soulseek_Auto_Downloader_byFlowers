@@ -21,7 +21,8 @@ from normalizador import (
     proximidade_do_titulo,
     titulo_aparece_em,
 )
-from qualidade import Avaliacao, Criterios, escolher_melhores, ranquear, reprovados
+from politica import Escolha, Foco, escolher_por_politica
+from qualidade import Avaliacao, Criterios, ranquear, reprovados
 from slskd_cliente import ClienteSlskd
 
 
@@ -46,8 +47,12 @@ class ResultadoDaBusca:
     #: Barrados por serem **outra música do artista certo** — o caso de buscar
     #: "Djavan ficar" e receber "Tenho Medo de Ficar Só".
     de_outra_musica: list[Candidato] = field(default_factory=list)
-    #: Os que vão para a fila de download.
-    escolhidos: list[Avaliacao] = field(default_factory=list)
+    #: Os que vão para a fila, **com o papel de cada um** (sem perda, MP3, foco).
+    escolhas: list[Escolha] = field(default_factory=list)
+
+    @property
+    def escolhidos(self) -> list[Avaliacao]:
+        return [e.avaliacao for e in self.escolhas]
 
     @property
     def achou(self) -> bool:
@@ -88,9 +93,10 @@ class Buscador:
         self,
         cliente: ClienteSlskd,
         criterios: Criterios | None = None,
-        quantidade_por_faixa: int = 2,
+        quantidade_por_faixa: int = 3,
         max_variantes: int = 4,
         conferir_nomes: bool = True,
+        foco: Foco = Foco.SEM_PERDA,
     ):
         """`max_variantes` limita quantas formas tentar antes de desistir.
 
@@ -103,6 +109,7 @@ class Buscador:
         self.quantidade_por_faixa = quantidade_por_faixa
         self.max_variantes = max_variantes
         self.conferir_nomes = conferir_nomes
+        self.foco = foco
 
     def buscar_faixa(self, faixa: Faixa) -> ResultadoDaBusca:
         resultado = ResultadoDaBusca(faixa=faixa)
@@ -133,7 +140,12 @@ class Buscador:
             resultado.variante_que_acertou = variante
             resultado.aprovados = self._reordenar_por_proximidade(aprovados, faixa)
             resultado.descartados = reprovados(candidatos, faixa.duracao_s, self.criterios)
-            resultado.escolhidos = escolher_melhores(aprovados, self.quantidade_por_faixa)
+            resultado.escolhas = escolher_por_politica(
+                resultado.aprovados,
+                foco=self.foco,
+                quantidade=self.quantidade_por_faixa,
+                criterios=self.criterios,
+            )
             return resultado
 
         return resultado
