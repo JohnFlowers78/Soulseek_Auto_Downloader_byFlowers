@@ -41,6 +41,12 @@ class Config:
     #: A que o slskd oferece para a rede. Sem ela o app funciona por um tempo e depois
     #: para de conseguir baixar — ver `problemas()`.
     pasta_compartilhada: str = ""
+    #: **Todas** as pastas oferecidas à rede. Quem tem acervo de DJ não guarda tudo num
+    #: lugar só — são discos diferentes, por gênero, por ano. Compartilhar mais também
+    #: é do interesse de quem baixa: quanto mais você oferece, menos gente te bloqueia.
+    #: A primeira da lista é espelhada em `pasta_compartilhada`, que continua sendo o
+    #: que o resto do app pergunta quando só precisa de uma.
+    pastas_compartilhadas: list[str] = field(default_factory=list)
     #: Quando o usuário confirmou a pasta compartilhada pela última vez (ISO 8601).
     compartilhada_confirmada_em: str = ""
 
@@ -220,7 +226,39 @@ class Config:
                 pendencias.append(f"A {rotulo} não existe: {valor}")
         return pendencias
 
+    # ------------------------------------------- as pastas compartilhadas
+
+    def definir_compartilhadas(self, pastas) -> None:
+        """Guarda a lista inteira, sem repetidas e sem vazias, mantendo a ordem.
+
+        `pasta_compartilhada` passa a ser a primeira. Assim tudo que já perguntava por
+        "a" pasta continua funcionando sem saber que agora são várias.
+        """
+        if isinstance(pastas, str):
+            pastas = [pastas]
+        limpas: list[str] = []
+        for pasta in pastas:
+            pasta = str(pasta).strip()
+            if pasta and pasta not in limpas:
+                limpas.append(pasta)
+        self.pastas_compartilhadas = limpas
+        self.pasta_compartilhada = limpas[0] if limpas else ""
+
+    def todas_as_compartilhadas(self) -> list[str]:
+        """A lista completa. Config antiga, só com uma pasta, continua respondendo."""
+        if self.pastas_compartilhadas:
+            return list(self.pastas_compartilhadas)
+        return [self.pasta_compartilhada] if self.pasta_compartilhada.strip() else []
+
     def _problemas_da_compartilhada(self, agora: datetime | None) -> list[str]:
+        sumidas = [p for p in self.todas_as_compartilhadas()[1:] if not Path(p).is_dir()]
+        if sumidas:
+            return [
+                "Estas pastas compartilhadas sumiram: " + ", ".join(sumidas) + ". "
+                "Tire-as da lista ou aponte o novo lugar — o slskd reclama de pasta que "
+                "não existe e pode nem subir."
+            ]
+
         if not self.pasta_compartilhada.strip():
             return [
                 "Escolha uma pasta para compartilhar na rede. Sem ela o Soulseek anuncia "

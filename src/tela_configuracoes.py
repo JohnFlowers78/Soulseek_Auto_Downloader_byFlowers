@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -54,6 +55,72 @@ def _explicacao(texto: str) -> QLabel:
     rotulo.setWordWrap(True)
     rotulo.setStyleSheet("color: palette(mid); margin-bottom: 6px;")
     return rotulo
+
+
+class ListaDePastas(QWidget):
+    """Várias pastas, com botões de acrescentar e tirar.
+
+    Acervo de DJ não mora num lugar só — são discos diferentes, separados por gênero ou
+    por ano. E compartilhar mais é do interesse de quem baixa: quanto mais você oferece,
+    menos gente te bloqueia.
+    """
+
+    def __init__(self, titulo_do_dialogo: str):
+        super().__init__()
+        self._titulo = titulo_do_dialogo
+
+        self.lista = QListWidget()
+        self.lista.setToolTip("Todas estas pastas são oferecidas à rede Soulseek")
+        self.lista.setMinimumHeight(96)
+
+        acrescentar = QPushButton("Acrescentar pasta…")
+        acrescentar.clicked.connect(self._acrescentar)
+        self.botao_tirar = QPushButton("Tirar a selecionada")
+        self.botao_tirar.clicked.connect(self._tirar)
+
+        botoes = QHBoxLayout()
+        botoes.addWidget(acrescentar)
+        botoes.addWidget(self.botao_tirar)
+        botoes.addStretch(1)
+
+        fora = QVBoxLayout(self)
+        fora.setContentsMargins(0, 0, 0, 0)
+        fora.addWidget(self.lista)
+        fora.addLayout(botoes)
+
+        self.lista.itemSelectionChanged.connect(self._atualizar_botoes)
+        self._atualizar_botoes()
+
+    def _acrescentar(self) -> None:
+        escolhida = QFileDialog.getExistingDirectory(self, self._titulo)
+        if not escolhida:
+            return
+        caminho = str(Path(escolhida))
+        if caminho not in self.valores():  # a mesma pasta duas vezes não ajuda ninguém
+            self.lista.addItem(caminho)
+        self._atualizar_botoes()
+
+    def _tirar(self) -> None:
+        for item in self.lista.selectedItems():
+            self.lista.takeItem(self.lista.row(item))
+        self._atualizar_botoes()
+
+    def _atualizar_botoes(self) -> None:
+        self.botao_tirar.setEnabled(bool(self.lista.selectedItems()))
+
+    def valores(self) -> list[str]:
+        return [self.lista.item(i).text() for i in range(self.lista.count())]
+
+    def valor(self) -> str:
+        """A primeira. É o que o resto do app pergunta quando só precisa de uma."""
+        return self.valores()[0] if self.lista.count() else ""
+
+    def definir(self, pastas) -> None:
+        if isinstance(pastas, str):
+            pastas = [pastas] if pastas.strip() else []
+        self.lista.clear()
+        self.lista.addItems([str(p) for p in pastas if str(p).strip()])
+        self._atualizar_botoes()
 
 
 class SeletorDePasta(QWidget):
@@ -186,7 +253,7 @@ class TelaConfiguracoes(QWidget):
 
         corpo.addSpacing(18)
 
-        grupo = QGroupBox("Pasta compartilhada  —  obrigatória na prática")
+        grupo = QGroupBox("Pastas compartilhadas  —  obrigatórias na prática")
         interno = QVBoxLayout(grupo)
         interno.addWidget(
             _explicacao(
@@ -195,11 +262,13 @@ class TelaConfiguracoes(QWidget):
                 "Enquanto seu cliente anunciar <i>“Nothing Shared”</i>, muitos usuários bloqueiam "
                 "você automaticamente, e aí os downloads simplesmente param de completar. "
                 "Não é etiqueta: é requisito de funcionamento.<br><br>"
-                "Este caminho também precisa estar no <b>slskd</b> "
+                "Você pode oferecer <b>quantas pastas quiser</b> — acervo de DJ raramente "
+                "mora num lugar só. Quanto mais você compartilha, menos gente te bloqueia.<br><br>"
+                "Todas elas são gravadas no <b>slskd</b> "
                 "(<code>shares.directories</code> no <code>slskd.yml</code>)."
             )
         )
-        self.compartilhada = SeletorDePasta("Escolha a pasta que você vai compartilhar")
+        self.compartilhada = ListaDePastas("Escolha mais uma pasta para compartilhar")
         interno.addWidget(self.compartilhada)
 
         # A reconfirmação periódica: pasta de compartilhamento é a coisa que apodrece em
@@ -334,7 +403,7 @@ class TelaConfiguracoes(QWidget):
             onde = slskd_config.gravar(
                 usuario=self.slsk_usuario.text(),
                 senha=self.slsk_senha.text(),
-                pasta=pasta,
+                pastas=pastas,
             )
         except (FileNotFoundError, OSError) as erro:
             QMessageBox.warning(self, "Não consegui gravar", str(erro))
@@ -698,7 +767,7 @@ class TelaConfiguracoes(QWidget):
         padrao = sistema.pasta_de_musicas_padrao()
         self.mae_playlists.definir(c.pasta_mae_playlists or str(padrao / "Playlists"))
         self.mae_acervo.definir(c.pasta_mae_acervo or str(padrao / "Acervo"))
-        self.compartilhada.definir(c.pasta_compartilhada)
+        self.compartilhada.definir(c.todas_as_compartilhadas())
         self._atualizar_confirmacao()
         self._atualizar_slskd_yml()
         self.spotify_id.setText(c.spotify_client_id)
@@ -717,7 +786,7 @@ class TelaConfiguracoes(QWidget):
         c = self.config
         c.pasta_mae_playlists = self.mae_playlists.valor()
         c.pasta_mae_acervo = self.mae_acervo.valor()
-        c.pasta_compartilhada = self.compartilhada.valor()
+        c.definir_compartilhadas(self.compartilhada.valores())
         c.spotify_client_id = self.spotify_id.text().strip()
         c.spotify_client_secret = self.spotify_secret.text().strip()
         c.slskd_url = self.slskd_url.text().strip()
