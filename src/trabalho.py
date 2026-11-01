@@ -297,6 +297,11 @@ class TarefaDeDownload(QThread):
         """
         resultado = buscador.buscar_faixa(faixa)
         self._ficha[chave] = str(faixa)
+        # Segunda tentativa da MESMA faixa (o motor caiu e voltou) começa de folha
+        # limpa: senão o registro da tentativa que falhou ficaria somado ao da que deu
+        # certo, e a faixa apareceria em duas colunas.
+        self._sem_candidato.pop(chave, None)
+        self._recusados.pop(chave, None)
 
         if not resultado.escolhas:
             self._sem_candidato[chave] = resultado.resumo()

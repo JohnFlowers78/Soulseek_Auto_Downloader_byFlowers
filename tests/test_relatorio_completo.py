@@ -230,10 +230,30 @@ class ResultadoFalso:
 
 
 class BuscadorFalso:
+    def __init__(self, escolhas=()):
+        self._escolhas = list(escolhas)
+
     def buscar_faixa(self, faixa):
         # Objeto novo a cada chamada, descartado logo depois — era aqui que o
         # `id()` reaproveitava endereço e uma faixa apagava a outra.
-        return ResultadoFalso(faixa)
+        r = ResultadoFalso(faixa)
+        r.escolhas = list(self._escolhas)
+        r.escolhidos = list(self._escolhas)
+        return r
+
+
+class OperarioFalso:
+    def __init__(self, aceita=True):
+        self.aceita = aceita
+
+    def enfileirar(self, escolhidos):
+        class Fila:
+            pass
+
+        fila = Fila()
+        fila.aceitos = list(escolhidos) if self.aceita else []
+        fila.recusados = [] if self.aceita else [(c, "usuário offline") for c in escolhidos]
+        return fila
 
 
 def test_cada_faixa_tem_sua_propria_chave(app):
@@ -254,3 +274,39 @@ def test_cada_faixa_tem_sua_propria_chave(app):
     andamento = Andamento(total=30)
     t._recalcular(andamento)
     assert len(andamento.nao_vieram) == 30
+
+
+def test_a_segunda_tentativa_apaga_o_registro_da_primeira(app):
+    """O motor cai, religa, e a MESMA faixa é tentada de novo.
+
+    Sem limpar o registro anterior, a tentativa que falhou ficaria somada à que deu
+    certo e a faixa apareceria em duas colunas.
+    """
+    t = tarefa(app)
+    pendentes: dict = {}
+
+    t._uma_faixa(7, "Djavan — Se", BuscadorFalso(["a.flac"]), OperarioFalso(aceita=False), pendentes)
+    assert 7 in t._recusados
+
+    t._uma_faixa(7, "Djavan — Se", BuscadorFalso(["a.flac"]), OperarioFalso(aceita=True), pendentes)
+
+    assert 7 not in t._recusados, "o recusado da primeira tentativa ficou para trás"
+    assert pendentes[7] == ["a.flac"]
+    assert t.contabilizadas == 0, "ainda não tem desfecho — está baixando"
+
+    andamento = Andamento(total=1)
+    t._recalcular(andamento)
+    assert andamento.nao_vieram == []
+
+
+def test_a_segunda_tentativa_limpa_o_sem_candidato(app):
+    t = tarefa(app)
+    pendentes: dict = {}
+
+    t._uma_faixa(3, "Céu — Malemolência", BuscadorFalso(), OperarioFalso(), pendentes)
+    assert 3 in t._sem_candidato
+
+    t._uma_faixa(3, "Céu — Malemolência", BuscadorFalso(["b.aiff"]), OperarioFalso(), pendentes)
+
+    assert 3 not in t._sem_candidato
+    assert pendentes[3] == ["b.aiff"]
