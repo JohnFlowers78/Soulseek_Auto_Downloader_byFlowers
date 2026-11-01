@@ -66,11 +66,13 @@ _Atualizado em: 05/09/2026_
 - [ ] **Detectar a briga de sessão** entre os dois motores e avisar com clareza.
 - [x] **Limitador de buscas** (`limitador.py`) — 34 buscas / 220 s, com relógio
       injetável para testar sem esperar. Sabe estimar o tempo total antes de começar.
-- [ ] **`buscador.py`** — roda as variantes na ordem, para no primeiro resultado bom.
-- [ ] **`baixador.py`** — enfileira, acompanha, classifica em ✅ baixou / ⏳ preso na fila /
-      ❌ não achou.
+- [x] **`buscador.py`** — roda as variantes na ordem, **para na primeira que acerta**
+      (cada variante extra multiplica o tempo da playlist inteira).
+- [x] **`baixador.py`** — enfileira, acompanha, classifica em ✅ baixou / ⏳ preso na fila /
+      ❌ não achou. Nunca sobrescreve: `musica.flac` vira `musica (2).flac`.
+- [x] **`baixar.py`** — a corrente inteira pelo terminal, sem tela e sem Spotify.
 - [ ] **Fila persistente** — fechar o app no meio e retomar sem perder nada.
-- [ ] **Organizador** — mover o que baixou para `<destino>/<Nome da Playlist>/`.
+- [x] **Organizador** — mover o que baixou da área de passagem do slskd para o destino.
 
 ## 🖥️ Fase 4 — A janela do PC (PySide/Qt)
 

@@ -24,8 +24,10 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
+import sistema
 from limitador import LimitadorDeBuscas
 from modelos import Candidato, EstadoTransferencia, Transferencia
 
@@ -46,6 +48,47 @@ _ESTADOS = (
 
 class ErroSlskd(Exception):
     """Algo deu errado falando com o slskd. A mensagem é para aparecer na tela."""
+
+
+def ler_chave_do_yml(caminho: Path | None = None) -> str:
+    """Pega a chave de API direto do `slskd.yml`.
+
+    A chave estava sendo guardada em **dois** lugares — no `slskd.yml` e no nosso
+    `config.json` — e duas cópias da mesma verdade sempre acabam divergindo. Aqui elas
+    viram uma: o `slskd.yml` é o dono, e o app lê de lá quando o campo está vazio.
+
+    Leitura por linha em vez de um analisador de YAML de verdade: é uma chave só, e
+    somar uma dependência (e um item a empacotar no `.exe`) para ler uma linha não paga.
+    O formato é o que o nosso próprio gerador escreve.
+    """
+    if caminho is None:
+        executavel = sistema.encontrar_slskd()
+        candidatos = []
+        if executavel:
+            candidatos.append(executavel.parent / "dados" / "slskd.yml")
+        candidatos.append(sistema.pasta_de_dados_do_slskd() / "slskd.yml")
+        caminho = next((c for c in candidatos if c.is_file()), None)
+    if caminho is None or not Path(caminho).is_file():
+        return ""
+
+    try:
+        linhas = Path(caminho).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+
+    dentro_das_chaves = False
+    for linha in linhas:
+        sem_comentario = linha.split("#", 1)[0]
+        limpa = sem_comentario.strip()
+        if limpa.startswith("api_keys:"):
+            dentro_das_chaves = True
+            continue
+        if dentro_das_chaves and limpa.startswith("key:"):
+            return limpa.split(":", 1)[1].strip().strip("'\"")
+        # Saiu do bloco: uma linha sem recuo que não está em branco.
+        if dentro_das_chaves and sem_comentario and not sem_comentario[0].isspace():
+            break
+    return ""
 
 
 def traduzir_estado(texto: str) -> EstadoTransferencia:
@@ -104,7 +147,9 @@ class ClienteSlskd:
         tempo_limite_s: float = 30.0,
     ):
         self.base = f"{url.rstrip('/')}/api/v0"
-        self.chave_api = chave_api
+        # Campo vazio? A chave mora no slskd.yml — não há motivo para o usuário copiar
+        # e colar um segredo de um arquivo para outro.
+        self.chave_api = chave_api or ler_chave_do_yml()
         self.limitador = limitador or LimitadorDeBuscas()
         self._transporte = transporte or self._http
         self._dormir = dormir
