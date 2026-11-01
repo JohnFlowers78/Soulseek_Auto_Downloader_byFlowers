@@ -389,140 +389,128 @@ def test_cancelar_monta_o_caminho_certo():
 # -------------------------------------------------------------- erros
 
 
+class ConexaoFalsa:
+    """Finge ser a conexao viva: devolve status e corpo, ou levanta o que mandarem."""
+
+    def __init__(self, status=200, corpo=b"", erro=None, erros_antes=0):
+        self.status = status
+        self.corpo = corpo
+        self.erro = erro
+        self.erros_antes = erros_antes
+        self.pedidos = []
+        self.fechou = 0
+
+    def pedir(self, metodo, caminho, corpo, cabecalhos):
+        self.pedidos.append((metodo, caminho))
+        if self.erro is not None and len(self.pedidos) <= self.erros_antes:
+            raise self.erro
+        if self.erro is not None and self.erros_antes == 0:
+            raise self.erro
+        return self.status, self.corpo
+
+    def fechar(self):
+        self.fechou += 1
+
+
+def cliente_com(conexao) -> ClienteSlskd:
+    c = ClienteSlskd(chave_api="chave", dormir=lambda _s: None)
+    c._conexao = conexao
+    return c
+
+
 @pytest.mark.parametrize("codigo", [401, 403])
-def test_chave_recusada_explica_o_que_conferir(monkeypatch, codigo):
-    import urllib.error
-
-    import slskd_cliente
-
-    def recusar(*_args, **_kwargs):
-        raise urllib.error.HTTPError("url", codigo, "Unauthorized", {}, None)
-
-    monkeypatch.setattr(slskd_cliente.urllib.request, "urlopen", recusar)
+def test_chave_recusada_explica_o_que_conferir(codigo):
+    c = cliente_com(ConexaoFalsa(status=codigo, corpo=b"nope"))
 
     with pytest.raises(ErroSlskd) as erro:
-        ClienteSlskd(chave_api="errada")._http("GET", "/application")
+        c._http("GET", "/application")
 
-    # A mensagem tem que dizer ONDE conferir, não só que deu errado.
+    # A mensagem tem que dizer ONDE conferir, nao so que deu errado.
     assert "slskd.yml" in str(erro.value)
     assert "readwrite" in str(erro.value)
 
 
-def test_slskd_fora_do_ar_sugere_a_causa_provavel(monkeypatch):
-    import urllib.error
-
-    import slskd_cliente
-
-    def recusar(*_args, **_kwargs):
-        raise urllib.error.URLError("conexão recusada")
-
-    monkeypatch.setattr(slskd_cliente.urllib.request, "urlopen", recusar)
+def test_a_mensagem_de_erro_carrega_o_que_o_slskd_disse():
+    # Sem o corpo, um HTTP 500 vira "deu erro" e nao ha o que investigar.
+    c = cliente_com(ConexaoFalsa(status=500, corpo=b"User fulano appears to be offline"))
 
     with pytest.raises(ErroSlskd) as erro:
-        ClienteSlskd()._http("GET", "/application")
-
-    assert "Ele está rodando?" in str(erro.value)
-
-
-def test_409_na_busca_e_repetido_em_vez_de_derrubar_tudo():
-    """O 409 matou uma playlist de 14 na quarta faixa.
-
-    Significa conflito — o slskd ainda ocupado com busca anterior. Não é erro
-    permanente: esperar e repetir resolve.
-    """
-    tentativas = {"n": 0}
-
-    def transporte(metodo, caminho, corpo=None):
-        if metodo == "POST" and caminho == "/searches":
-            tentativas["n"] += 1
-            if tentativas["n"] < 3:
-                raise ErroSlskd("O slskd respondeu HTTP 409 em /searches.")
-            return 200, {"id": "x"}
-        if caminho.endswith("/responses"):
-            return 200, [RESPOSTA]
-        if caminho.startswith("/searches"):
-            return 200, {"isComplete": True}
-        return 200, None
-
-    candidatos = cliente(transporte).buscar("tim maia")
-
-    assert tentativas["n"] == 3
-    assert len(candidatos) == 2
-
-
-def test_409_insistente_acaba_desistindo():
-    def transporte(metodo, caminho, corpo=None):
-        if metodo == "POST" and caminho == "/searches":
-            raise ErroSlskd("O slskd respondeu HTTP 409 em /searches.")
-        return 200, None
-
-    with pytest.raises(ErroSlskd) as erro:
-        cliente(transporte).buscar("x")
-    assert "409" in str(erro.value)
-
-
-def test_a_cota_do_limitador_nao_e_gasta_por_tentativa_recusada():
-    # Uma busca recusada com 409 não chegou a ser feita; descontá-la encurtaria o
-    # ritmo sem motivo.
-    limitador = LimitadorDeBuscas(limite=10, janela_s=100, relogio=lambda: 0.0, dormir=lambda s: None)
-    tentativas = {"n": 0}
-
-    def transporte(metodo, caminho, corpo=None):
-        if metodo == "POST" and caminho == "/searches":
-            tentativas["n"] += 1
-            if tentativas["n"] < 3:
-                raise ErroSlskd("O slskd respondeu HTTP 409 em /searches.")
-            return 200, {"id": "x"}
-        if caminho.endswith("/responses"):
-            return 200, []
-        return 200, {"isComplete": True}
-
-    cliente(transporte, limitador=limitador).buscar("x")
-    assert limitador.usadas == 1
-
-
-def test_erro_que_nao_e_409_sobe_na_hora():
-    def transporte(metodo, caminho, corpo=None):
-        raise ErroSlskd("O slskd respondeu HTTP 500 em /searches.")
-
-    with pytest.raises(ErroSlskd) as erro:
-        cliente(transporte).buscar("x")
-    assert "500" in str(erro.value)
-
-
-def test_a_mensagem_de_erro_carrega_o_que_o_slskd_disse(monkeypatch):
-    # Sem o corpo, um HTTP 500 vira "deu erro" e não há o que investigar.
-    import io
-    import urllib.error
-
-    import slskd_cliente
-
-    def recusar(*_args, **_kwargs):
-        raise urllib.error.HTTPError(
-            "url", 500, "Erro", {}, io.BytesIO(b"Nao consegui falar com o usuario")
-        )
-
-    monkeypatch.setattr(slskd_cliente.urllib.request, "urlopen", recusar)
-
-    with pytest.raises(ErroSlskd) as erro:
-        ClienteSlskd()._http("POST", "/transfers/downloads/joao")
+        c._http("POST", "/transfers/downloads/joao")
 
     assert "500" in str(erro.value)
-    assert "Nao consegui falar com o usuario" in str(erro.value)
+    assert "appears to be offline" in str(erro.value)
 
 
-def test_outro_erro_http_diz_o_codigo_e_o_caminho(monkeypatch):
-    import urllib.error
-
-    import slskd_cliente
-
-    def recusar(*_args, **_kwargs):
-        raise urllib.error.HTTPError("url", 500, "Erro", {}, None)
-
-    monkeypatch.setattr(slskd_cliente.urllib.request, "urlopen", recusar)
+def test_outro_erro_http_diz_o_codigo_e_o_caminho():
+    c = cliente_com(ConexaoFalsa(status=503, corpo=b""))
 
     with pytest.raises(ErroSlskd) as erro:
-        ClienteSlskd()._http("GET", "/searches")
+        c._http("GET", "/searches")
 
-    assert "500" in str(erro.value)
+    assert "503" in str(erro.value)
     assert "/searches" in str(erro.value)
+
+
+def test_slskd_fora_do_ar_sugere_a_causa_provavel():
+    c = cliente_com(ConexaoFalsa(erro=ConnectionRefusedError("recusado")))
+
+    with pytest.raises(ErroSlskd) as erro:
+        c._http("GET", "/application")
+
+    assert "Ele esta rodando?" in str(erro.value).replace("á", "a")
+
+
+# ------------------------------------------ o erro que derrubou a playlist
+
+
+def _sem_folego() -> OSError:
+    """O WinError 10055 — sem espaco de buffer. Derrubou uma corrida de 425 faixas."""
+    erro = OSError(10055, "sem espaco no buffer")
+    erro.winerror = 10055
+    return erro
+
+
+def test_falta_de_folego_e_repetida_depois_de_esperar():
+    # Insistir na hora so piora: o sistema precisa de tempo para liberar portas.
+    conexao = ConexaoFalsa(status=200, corpo=b"{}", erro=_sem_folego(), erros_antes=2)
+    esperas = []
+    c = ClienteSlskd(chave_api="k", dormir=esperas.append)
+    c._conexao = conexao
+
+    status, _ = c._http("GET", "/application")
+
+    assert status == 200
+    assert len(esperas) == 2
+    assert esperas[1] > esperas[0], "a espera precisa crescer a cada tentativa"
+
+
+def test_a_conexao_e_fechada_entre_as_tentativas():
+    # Socket entupido nao se reaproveita; reabrir e parte do conserto.
+    conexao = ConexaoFalsa(status=200, corpo=b"{}", erro=_sem_folego(), erros_antes=1)
+    c = ClienteSlskd(chave_api="k", dormir=lambda _s: None)
+    c._conexao = conexao
+
+    c._http("GET", "/application")
+    assert conexao.fechou >= 1
+
+
+def test_falta_de_folego_insistente_desiste_com_recado():
+    conexao = ConexaoFalsa(erro=_sem_folego())
+    c = ClienteSlskd(chave_api="k", dormir=lambda _s: None, tentativas_sem_folego=2)
+    c._conexao = conexao
+
+    with pytest.raises(ErroSlskd) as erro:
+        c._http("GET", "/application")
+    assert "10055" in str(erro.value) or "buffer" in str(erro.value)
+
+
+def test_a_mesma_conexao_serve_varias_chamadas():
+    # O conserto de raiz: uma conexao viva em vez de um socket novo por chamada.
+    conexao = ConexaoFalsa(status=200, corpo=b"{}")
+    c = cliente_com(conexao)
+
+    for _ in range(50):
+        c._http("GET", "/application")
+
+    assert len(conexao.pedidos) == 50
+    assert conexao.fechou == 0

@@ -103,6 +103,33 @@ class Baixador:
 
     # ----------------------------------------------------------- acompanhar
 
+    def conferir_varios(self, grupos: dict) -> dict:
+        """Confere **vários** lotes com UMA consulta só.
+
+        Esta função existe por causa de um erro caro. A versão anterior conferia cada
+        faixa pendente separadamente — e todas pediam exatamente o mesmo dado. Com 50
+        faixas pendentes eram 50 conexões por faixa processada; numa playlist de 425,
+        dezenas de milhares de sockets em `TIME_WAIT`, até o Windows ficar sem portas
+        efêmeras e devolver `WinError 10055 — sem espaço de buffer`. A corrida morreu
+        pela metade.
+
+        O conserto é aritmético: a lista de downloads do slskd é **uma só**. Buscá-la
+        uma vez e distribuí-la entre os grupos custa 1 chamada em vez de N.
+        """
+        atuais = {
+            (t.candidato.usuario, t.candidato.nome_arquivo): t
+            for t in self.cliente.downloads()
+        }
+
+        lotes = {}
+        for chave, candidatos in grupos.items():
+            transferencias = []
+            for candidato in candidatos:
+                marca = (candidato.usuario, candidato.nome_arquivo)
+                transferencias.append(atuais.get(marca) or Transferencia(candidato=candidato))
+            lotes[chave] = Lote(transferencias=transferencias)
+        return lotes
+
     def conferir(self, candidatos: list[Candidato]) -> Lote:
         """Uma consulta só, **sem esperar nada**. Devolve a foto do momento.
 

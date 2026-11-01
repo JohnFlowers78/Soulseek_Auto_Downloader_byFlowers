@@ -201,6 +201,41 @@ def test_o_lote_sempre_tem_todos_os_candidatos_pedidos(tmp_path):
     assert len(lote.presas) == 2
 
 
+def test_conferir_varios_faz_UMA_consulta_para_todos(tmp_path):
+    """O bug que derrubou uma playlist de 425 faixas.
+
+    Conferir cada pendente separadamente fazia N chamadas para buscar o mesmo dado.
+    Com 50 pendentes, 50 conexões por faixa processada — e o Windows ficou sem portas
+    efêmeras, devolvendo `WinError 10055 — sem espaço de buffer`.
+    """
+    chamadas = {"n": 0}
+
+    def downloads():
+        chamadas["n"] += 1
+        return [transferencia(EstadoTransferencia.CONCLUIDA, f"m{i}.flac") for i in range(50)]
+
+    grupos = {i: [candidato(f"m{i}.flac")] for i in range(50)}
+    lotes = baixador(ClienteFalso(downloads), tmp_path).conferir_varios(grupos)
+
+    assert chamadas["n"] == 1, "uma consulta serve todos os grupos"
+    assert len(lotes) == 50
+
+
+def test_conferir_varios_devolve_um_lote_por_grupo(tmp_path):
+    cliente = ClienteFalso([transferencia(EstadoTransferencia.CONCLUIDA, "a.flac")])
+    grupos = {"x": [candidato("a.flac")], "y": [candidato("b.flac")]}
+
+    lotes = baixador(cliente, tmp_path).conferir_varios(grupos)
+
+    assert lotes["x"].concluidas
+    # O que o slskd não conhece ainda conta como pendente, não some do relatório.
+    assert lotes["y"].presas
+
+
+def test_conferir_varios_sem_grupos(tmp_path):
+    assert baixador(ClienteFalso([]), tmp_path).conferir_varios({}) == {}
+
+
 def test_acompanhar_avisa_o_progresso(tmp_path):
     avisos = []
     cliente = ClienteFalso([transferencia(EstadoTransferencia.CONCLUIDA)])

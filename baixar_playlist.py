@@ -305,19 +305,29 @@ def _buscar_e_enfileirar(faixa, buscador, operario, pendentes) -> ResultadoDaBus
 
 
 def _recolher(operario, pendentes, lotes, destino, bloquear: bool) -> None:
-    """Move para a pasta o que já terminou. Com `bloquear`, espera o resto."""
-    for chave in list(pendentes):
-        candidatos = pendentes[chave]
-        if bloquear:
-            lote = operario.acompanhar(candidatos, espera_max_s=300)
-        else:
-            lote = operario.conferir(candidatos)
+    """Move para a pasta o que já terminou. Com `bloquear`, espera o resto.
 
+    **Uma** consulta cobre todos os pendentes. Conferir um por um fazia N chamadas
+    para buscar o mesmo dado, e numa playlist de 425 faixas isso esgotou os sockets
+    do Windows e derrubou a corrida pela metade.
+    """
+    if not pendentes:
+        return
+
+    if bloquear:
+        for chave in list(pendentes):
+            lote = operario.acompanhar(pendentes[chave], espera_max_s=300)
+            lotes[chave] = lote
+            for caminho in operario.organizar(lote, destino):
+                print(f"   ⬇ {caminho.name}")
+            del pendentes[chave]
+        return
+
+    for chave, lote in operario.conferir_varios(dict(pendentes)).items():
         lotes[chave] = lote
         for caminho in operario.organizar(lote, destino):
             print(f"   ⬇ {caminho.name}")
-
-        if bloquear or lote.tudo_terminou:
+        if lote.tudo_terminou:
             del pendentes[chave]
 
 

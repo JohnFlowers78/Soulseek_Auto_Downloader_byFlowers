@@ -19,6 +19,8 @@ O transporte HTTP é injetável para os testes rodarem sem rede e sem slskd.
 
 from __future__ import annotations
 
+import errno
+import http.client
 import json
 import time
 import urllib.error
@@ -49,6 +51,67 @@ _ESTADOS = (
 
 class ErroSlskd(Exception):
     """Algo deu errado falando com o slskd. A mensagem é para aparecer na tela."""
+
+
+#: Códigos de erro de socket que querem dizer "o sistema está sem fôlego, espere".
+#: 10055 é o WSAENOBUFS do Windows — sem espaço de buffer ou fila cheia. Ele apareceu
+#: numa playlist de 425 faixas e derrubou a corrida pela metade.
+_SEM_FOLEGO = {10055, 10048, 10051, 10052, 10053, 10054, 10060, errno.ENOBUFS}
+
+
+class _ConexaoViva:
+    """Uma conexão HTTP mantida aberta entre as chamadas.
+
+    Existe por causa de um erro real: `WinError 10055 — o sistema não tinha espaço
+    suficiente no buffer`. Cada chamada abria um socket novo; numa playlist de 425
+    faixas isso vira dezenas de milhares de conexões em `TIME_WAIT`, até o Windows
+    ficar sem portas efêmeras e **parar de conectar em qualquer coisa**.
+
+    Reaproveitar a conexão resolve na origem. Quando ela cai — e cai, por tempo ocioso
+    ou pelo outro lado —, reconecta e tenta de novo **uma** vez: a falha é esperada,
+    não excepcional.
+    """
+
+    def __init__(self, base: str, tempo_limite_s: float):
+        partes = urllib.parse.urlsplit(base)
+        self.host = partes.hostname or "localhost"
+        self.porta = partes.port or (443 if partes.scheme == "https" else 80)
+        self.https = partes.scheme == "https"
+        self.prefixo = partes.path.rstrip("/")
+        self.tempo_limite_s = tempo_limite_s
+        self._conexao: http.client.HTTPConnection | None = None
+
+    def _abrir(self) -> http.client.HTTPConnection:
+        if self._conexao is None:
+            classe = http.client.HTTPSConnection if self.https else http.client.HTTPConnection
+            self._conexao = classe(self.host, self.porta, timeout=self.tempo_limite_s)
+        return self._conexao
+
+    def fechar(self) -> None:
+        if self._conexao is not None:
+            try:
+                self._conexao.close()
+            except Exception:  # noqa: BLE001 — fechar não pode falhar o chamador
+                pass
+            self._conexao = None
+
+    def pedir(self, metodo: str, caminho: str, corpo: bytes | None, cabecalhos: dict):
+        """Devolve `(status, bytes)`. Reconecta uma vez se a conexão tiver morrido."""
+        for tentativa in (1, 2):
+            try:
+                conexao = self._abrir()
+                conexao.request(metodo, f"{self.prefixo}{caminho}", body=corpo, headers=cabecalhos)
+                resposta = conexao.getresponse()
+                dados = resposta.read()  # precisa ser lido todo para a conexão servir de novo
+                return resposta.status, dados
+            except (http.client.HTTPException, OSError) as erro:
+                self.fechar()
+                sem_folego = isinstance(erro, OSError) and (
+                    getattr(erro, "winerror", None) in _SEM_FOLEGO or erro.errno in _SEM_FOLEGO
+                )
+                if tentativa == 2 or sem_folego:
+                    raise
+        raise RuntimeError("inalcançável")
 
 
 def _corpo_do_erro(erro: urllib.error.HTTPError) -> str:
@@ -164,6 +227,8 @@ class ClienteSlskd:
         transporte: Callable[..., tuple[int, Any]] | None = None,
         dormir: Callable[[float], None] = time.sleep,
         tempo_limite_s: float = 30.0,
+        tentativas_sem_folego: int = 4,
+        espera_sem_folego_s: float = 5.0,
     ):
         self.base = f"{url.rstrip('/')}/api/v0"
         # Campo vazio? A chave mora no slskd.yml — não há motivo para o usuário copiar
@@ -173,43 +238,62 @@ class ClienteSlskd:
         self._transporte = transporte or self._http
         self._dormir = dormir
         self.tempo_limite_s = tempo_limite_s
+        self.tentativas_sem_folego = tentativas_sem_folego
+        self.espera_sem_folego_s = espera_sem_folego_s
+        self._conexao = _ConexaoViva(self.base, tempo_limite_s)
+
+    def fechar(self) -> None:
+        """Encerra a conexão. Chamar ao terminar — sobretudo em corridas longas."""
+        self._conexao.fechar()
+
+    def __enter__(self) -> "ClienteSlskd":
+        return self
+
+    def __exit__(self, *_erro) -> None:
+        self.fechar()
 
     # ------------------------------------------------------------- transporte
 
     def _http(self, metodo: str, caminho: str, corpo: Any = None) -> tuple[int, Any]:
         dados = json.dumps(corpo).encode("utf-8") if corpo is not None else None
-        cabecalhos = {"X-API-Key": self.chave_api}
+        cabecalhos = {"X-API-Key": self.chave_api, "Accept": "application/json"}
         if dados:
             cabecalhos["Content-Type"] = "application/json"
 
-        pedido = urllib.request.Request(
-            f"{self.base}{caminho}", data=dados, headers=cabecalhos, method=metodo
-        )
-        try:
-            with urllib.request.urlopen(pedido, timeout=self.tempo_limite_s) as resposta:
-                bruto = resposta.read().decode("utf-8")
-                return resposta.status, (json.loads(bruto) if bruto.strip() else None)
-        except urllib.error.HTTPError as erro:
-            if erro.code in (401, 403):
-                raise ErroSlskd(
-                    "O slskd recusou a chave de API. Confira se a chave do app é a mesma "
-                    "que está no slskd.yml, e se o papel dela é 'readwrite'."
-                ) from erro
+        for tentativa in range(self.tentativas_sem_folego):
+            try:
+                status, bruto = self._conexao.pedir(metodo, caminho, dados, cabecalhos)
+                break
+            except OSError as erro:
+                codigo = getattr(erro, "winerror", None) or erro.errno
+                if codigo not in _SEM_FOLEGO or tentativa == self.tentativas_sem_folego - 1:
+                    raise ErroSlskd(
+                        f"Não consegui falar com o slskd em {self.base}. "
+                        f"Ele está rodando? ({erro})"
+                    ) from erro
+                # Sem fôlego de socket: o sistema precisa de tempo para liberar portas.
+                # Insistir na hora só piora; esperar resolve.
+                self._conexao.fechar()
+                self._dormir(self.espera_sem_folego_s * (tentativa + 1))
+        else:  # pragma: no cover - o laço sempre sai pelo break ou pelo raise
+            raise ErroSlskd("Não consegui falar com o slskd.")
+
+        texto = bruto.decode("utf-8", "replace").strip()
+
+        if status in (401, 403):
+            raise ErroSlskd(
+                "O slskd recusou a chave de API. Confira se a chave do app é a mesma "
+                "que está no slskd.yml, e se o papel dela é 'readwrite'."
+            )
+        if status >= 400:
             # O corpo da resposta entra na mensagem. Sem ele, um HTTP 500 vira "deu
             # erro" e não há o que investigar — foi o que aconteceu num download real.
-            #
-            # Lido UMA vez só: é um fluxo, e a segunda leitura volta vazia. Chamar duas
-            # vezes dentro da mesma expressão fazia a mensagem sair sempre sem o corpo.
-            disse = _corpo_do_erro(erro)
             raise ErroSlskd(
-                f"O slskd respondeu HTTP {erro.code} em {caminho}."
-                + (f" Disse: {disse}" if disse else "")
-            ) from erro
-        except urllib.error.URLError as erro:
-            raise ErroSlskd(
-                f"Não consegui falar com o slskd em {self.base}. Ele está rodando? "
-                f"({erro.reason})"
-            ) from erro
+                f"O slskd respondeu HTTP {status} em {caminho}."
+                + (f" Disse: {texto[:300]}" if texto else "")
+            )
+
+        return status, (json.loads(texto) if texto else None)
 
     def _chamar(self, metodo: str, caminho: str, corpo: Any = None) -> Any:
         _, dados = self._transporte(metodo, caminho, corpo)
