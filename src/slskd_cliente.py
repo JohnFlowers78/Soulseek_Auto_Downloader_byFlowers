@@ -264,6 +264,8 @@ class ClienteSlskd:
         self._conexao = _ConexaoViva(self.base, tempo_limite_s)
         #: Buscas que estouraram o tempo e não puderam ser apagadas na hora.
         self._deixadas_para_tras = 0
+        #: A última busca chegou ao fim? Vazio sem ter terminado não é "não existe".
+        self.ultima_busca_terminou = True
 
     #: De quantas em quantas buscas deixadas para trás vale rodar a faxina.
     FAXINA_A_CADA = 10
@@ -371,7 +373,20 @@ class ClienteSlskd:
 
     # ----------------------------------------------------------------- busca
 
-    def buscar(self, texto: str, espera_max_s: float = 25.0) -> list[Candidato]:
+    #: Quanto esperar uma busca terminar. **Medido** numa corrida real de 01/11/2026,
+    #: do `startedAt` ao `endedAt` que o próprio slskd grava:
+    #:
+    #:     Josh Butler Hap Hazard   38,7 s      Fcukers Bon Bon       41,4 s
+    #:     Josh Butler hazard       31,3 s      Julius Strieder...    30,3 s
+    #:     Silva Bumpa Riordan...   27,5 s      Hap Hazard            26,1 s
+    #:
+    #: O valor antigo era **25 s** — abaixo de quase toda busca de verdade. E como o
+    #: slskd não entrega resultado parcial, desistir um segundo antes do fim é o mesmo
+    #: que não ter buscado: o app relatava "nada na rede" com 42 arquivos guardados
+    #: dentro do motor. Setenta e cinco cobre a mais lenta medida com folga de 80%.
+    ESPERA_PELA_BUSCA_S = 75.0
+
+    def buscar(self, texto: str, espera_max_s: float | None = None) -> list[Candidato]:
         """Faz uma busca completa e devolve os candidatos aproveitáveis.
 
         **Respeita o limitador**: se a cota da janela acabou, espera. É por isso que esta
@@ -379,11 +394,17 @@ class ClienteSlskd:
         alternativa é meia hora de banimento.
         """
         self.limitador.aguardar_vez()
+        if espera_max_s is None:
+            espera_max_s = self.ESPERA_PELA_BUSCA_S
 
         busca_id = self._abrir_busca(texto)
         terminou = False
         try:
             terminou = bool(self._esperar_terminar(busca_id, espera_max_s).get("isComplete"))
+            #: Busca que não terminou devolve lista vazia, e vazio aqui **não** quer
+            #: dizer "não existe na rede". Quem chama precisa da diferença para não
+            #: relatar uma mentira.
+            self.ultima_busca_terminou = terminou
             respostas = self._chamar("GET", f"/searches/{busca_id}/responses") or []
             return candidatos_das_respostas(respostas)
         finally:
@@ -459,9 +480,13 @@ class ClienteSlskd:
     def _esperar_terminar(self, busca_id: str, espera_max_s: float) -> dict:
         """Fica consultando até a busca acabar ou o tempo estourar.
 
-        Estourar o tempo **não é erro**: o que já chegou vale. Nas medições, uma busca
-        trouxe 252 respostas em 5 segundos e ainda assim terminou como "TimedOut" —
-        o resultado estava lá.
+        **Estourar o tempo é perder a busca inteira.** Eu escrevia aqui que "o que já
+        chegou vale" — está errado, e custou meia playlist. Medido no slskd em corrida:
+
+            completa=False | ele diz 5 respostas / 9 arquivos | /responses devolve 0
+
+        Enquanto a busca não termina, o endpoint de respostas devolve **lista vazia**.
+        Não existe resultado parcial para ler.
         """
         passo = 1.0
         gasto = 0.0

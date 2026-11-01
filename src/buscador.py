@@ -47,6 +47,10 @@ class ResultadoDaBusca:
     #: Barrados por serem **outra música do artista certo** — o caso de buscar
     #: "Djavan ficar" e receber "Tenho Medo de Ficar Só".
     de_outra_musica: list[Candidato] = field(default_factory=list)
+    #: Quantas variantes foram buscadas e a busca NÃO terminou a tempo. Enquanto o
+    #: slskd não fecha a busca, o endpoint de respostas devolve lista vazia — e
+    #: vazio assim não é "não existe na rede", é "não deu tempo de ver".
+    buscas_incompletas: int = 0
     #: Os que vão para a fila, **com o papel de cada um** (sem perda, MP3, foco).
     escolhas: list[Escolha] = field(default_factory=list)
 
@@ -85,6 +89,12 @@ class ResultadoDaBusca:
                 f"❌ {self.faixa} — achou {len(self.de_outro_artista)} com esse nome, "
                 f"mas de outro artista ({self.buscas_gastas} busca(s))"
             )
+        if self.buscas_incompletas:
+            return (
+                f"⌛ {self.faixa} — a busca não terminou a tempo "
+                f"({self.buscas_incompletas} de {self.buscas_gastas}); "
+                "não dá para dizer que não existe na rede"
+            )
         return f"❌ {self.faixa} — nada na rede ({self.buscas_gastas} busca(s))"
 
 
@@ -119,6 +129,8 @@ class Buscador:
 
             candidatos = self.cliente.buscar(variante.consulta)
             if not candidatos:
+                if not getattr(self.cliente, "ultima_busca_terminou", True):
+                    resultado.buscas_incompletas += 1
                 continue
 
             # Confere artista e título de volta ANTES de qualquer outra coisa. As duas
