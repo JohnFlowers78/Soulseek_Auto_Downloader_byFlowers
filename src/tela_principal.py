@@ -355,11 +355,26 @@ class JanelaPrincipal(QMainWindow):
 
     @staticmethod
     def _encher(lista: QListWidget, itens: list[str]) -> None:
-        """Só acrescenta o que falta — redesenhar tudo faria a lista piscar."""
-        if lista.count() >= len(itens):
-            return
-        for texto in itens[lista.count():]:
-            lista.addItem(texto)
+        """Deixa a lista igual a `itens`, mexendo só no que mudou.
+
+        Antes isto só acrescentava o fim, o que valia enquanto o relatório apenas
+        crescia. Agora ele é refeito a cada volta, e uma faixa **sai** das presas
+        quando o download termina: uma lista que só cresce mostraria a mesma faixa em
+        duas colunas, e repetida quando a ordem mudasse.
+
+        Não dá para usar `clear()`: redesenhar tudo a cada segundo, por horas, faria a
+        lista piscar e perder a posição da rolagem. Então o item que já existe tem só o
+        texto trocado, e sobra/falta é ajustada na ponta.
+        """
+        for i, texto in enumerate(itens):
+            item = lista.item(i)
+            if item is None:
+                lista.addItem(texto)
+            elif item.text() != texto:
+                item.setText(texto)
+
+        while lista.count() > len(itens):
+            lista.takeItem(lista.count() - 1)
 
     def _acabou(self, andamento: Andamento, destino: str) -> None:
         self._liberar_botoes()

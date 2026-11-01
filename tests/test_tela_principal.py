@@ -199,14 +199,50 @@ def test_o_progresso_enche_as_tres_listas(app, config):
     assert j.barra.value() == 3
 
 
-def test_a_lista_so_cresce_e_nao_pisca(app, config):
+def test_a_lista_cresce_sem_piscar(app, config):
     # Redesenhar tudo a cada volta faria a lista piscar numa corrida de horas.
     j = janela(app, config)
     j._andou(Andamento(total=10, baixadas=["a.flac"]))
+    primeiro = j.lista_baixadas.item(0)
     j._andou(Andamento(total=10, baixadas=["a.flac", "b.flac"]))
 
     assert j.lista_baixadas.count() == 2
-    assert j.lista_baixadas.item(0).text() == "a.flac"
+    assert j.lista_baixadas.item(0) is primeiro, "o item que não mudou nem foi tocado"
+
+
+def test_a_faixa_que_saiu_das_presas_sai_da_coluna(app, config):
+    """A outra metade do "só 11 de 21 aparecem".
+
+    O relatório agora é refeito a cada volta, e uma faixa **sai** das presas quando o
+    download termina. Uma coluna que só crescia mostraria a mesma faixa em dois
+    lugares para sempre.
+    """
+    j = janela(app, config)
+    j._andou(Andamento(total=2, presas=["A", "B"]))
+    assert j.lista_presas.count() == 2
+
+    j._andou(Andamento(total=2, presas=["B"], baixadas=["A → a.flac"]))
+
+    assert [j.lista_presas.item(i).text() for i in range(j.lista_presas.count())] == ["B"]
+    assert j.lista_baixadas.count() == 1
+
+
+def test_a_coluna_nao_duplica_quando_a_ordem_muda(app, config):
+    # Acrescentar só o fim duplicava item quando a lista era refeita noutra ordem.
+    j = janela(app, config)
+    j._andou(Andamento(total=2, baixadas=["B"]))
+    j._andou(Andamento(total=2, baixadas=["A", "B"]))
+
+    textos = [j.lista_baixadas.item(i).text() for i in range(j.lista_baixadas.count())]
+    assert textos == ["A", "B"]
+
+
+def test_coluna_que_esvazia_fica_vazia(app, config):
+    j = janela(app, config)
+    j._andou(Andamento(total=1, presas=["A"]))
+    j._andou(Andamento(total=1, presas=[], baixadas=["A → a.flac"]))
+
+    assert j.lista_presas.count() == 0
 
 
 def test_os_erros_aparecem_junto_do_que_nao_veio(app, config):

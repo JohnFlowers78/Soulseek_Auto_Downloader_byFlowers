@@ -128,6 +128,12 @@ class TarefaDeDownload(QThread):
         self.motor = motor
         self.religadas = 0
         self._parar = False
+        #: Registro por faixa. Existe para que TODA faixa apareca em exatamente um
+        #: lugar no relatorio — de 21, so 11 apareciam antes disto.
+        self._ficha: dict[int, str] = {}        # chave -> texto da faixa
+        self._lotes: dict[int, object] = {}     # chave -> Lote
+        self._sem_candidato: dict[int, str] = {}  # nada aproveitavel na rede
+        self._recusados: dict[int, str] = {}      # o slskd recusou enfileirar
 
     def pedir_para_parar(self) -> None:
         """Pede para encerrar na próxima faixa. O que já baixou fica na pasta."""
@@ -232,8 +238,7 @@ class TarefaDeDownload(QThread):
             self.progrediu.emit(andamento)
 
             try:
-                resultado = self._uma_faixa(faixa, buscador, operario, pendentes)
-                self._anotar(andamento, resultado)
+                self._uma_faixa(i, faixa, buscador, operario, pendentes)
             except ErroSlskd as erro:
                 # O slskd morre sozinho de vez em quando: ele tem um defeito conhecido
                 # no caminho de desistir de entrar numa fila remota (exceção fatal que
@@ -241,8 +246,7 @@ class TarefaDeDownload(QThread):
                 # muito melhor que perder uma corrida de horas.
                 if self._religar_motor(andamento):
                     try:
-                        resultado = self._uma_faixa(faixa, buscador, operario, pendentes)
-                        self._anotar(andamento, resultado)
+                        self._uma_faixa(i, faixa, buscador, operario, pendentes)
                     except Exception as outra:  # noqa: BLE001
                         andamento.erros.append(f"{faixa} — {type(outra).__name__}: {outra}")
                 else:
@@ -282,18 +286,80 @@ class TarefaDeDownload(QThread):
         self.progrediu.emit(andamento)
         return voltou
 
-    def _uma_faixa(self, faixa, buscador, operario, pendentes) -> ResultadoDaBusca:
+    def _uma_faixa(self, chave, faixa, buscador, operario, pendentes) -> ResultadoDaBusca:
+        """Busca, escolhe e enfileira UMA faixa, registrando o desfecho sob `chave`.
+
+        A chave é a posição da faixa na playlist. Já foi `id(resultado)`, e isso era
+        uma bomba de efeito retardado: o CPython reaproveita o endereço de um objeto
+        recolhido, e o resultado da busca virava lixo logo depois desta função. Duas
+        faixas diferentes podiam receber a MESMA chave, e uma apagaria o registro da
+        outra — exatamente o sintoma que estou consertando aqui.
+        """
         resultado = buscador.buscar_faixa(faixa)
-        if resultado.escolhas:
-            fila = operario.enfileirar(resultado.escolhidos)
-            if fila.aceitos:
-                pendentes[id(resultado)] = fila.aceitos
+        self._ficha[chave] = str(faixa)
+
+        if not resultado.escolhas:
+            self._sem_candidato[chave] = resultado.resumo()
+            return resultado
+
+        fila = operario.enfileirar(resultado.escolhidos)
+        if fila.aceitos:
+            pendentes[chave] = fila.aceitos
+        else:
+            # Achou, escolheu, e o slskd recusou TODAS. Sem esta linha a faixa
+            # desaparecia do relatório — nem baixada, nem presa, nem não-encontrada.
+            motivos = "; ".join(motivo for _c, motivo in fila.recusados) or "recusado"
+            self._recusados[chave] = motivos
         return resultado
 
-    @staticmethod
-    def _anotar(andamento: Andamento, resultado: ResultadoDaBusca) -> None:
-        if not resultado.escolhas:
-            andamento.nao_vieram.append(resultado.resumo())
+    def _recalcular(self, andamento: Andamento) -> None:
+        """Refaz as quatro listas a partir do registro, do zero.
+
+        Antes, cada lista era remendada ao longo da corrida — e `presas` era
+        **sobrescrita** a cada volta em vez de acumulada. De 21 faixas, só 11
+        apareciam no fim: as demais sumiam entre uma atualização e outra, ou por
+        terem falhado no download, que não tinha lista nenhuma.
+
+        Refazer tudo a cada volta custa quase nada (são listas de dezenas de itens) e
+        garante o que importa: **toda faixa aparece em exatamente um lugar.**
+        """
+        baixadas, presas, nao_vieram = [], [], []
+
+        # A ficha manda na ORDEM (é a ordem da playlist), mas quem aparece é a UNIÃO de
+        # todos os registros: chave sem ficha ainda é uma faixa, e deixá-la de fora
+        # seria repetir, por outro caminho, o defeito que isto conserta.
+        for chave in dict.fromkeys(
+            (*self._ficha, *self._lotes, *self._sem_candidato, *self._recusados)
+        ):
+            faixa = self._ficha.get(chave, "?")
+            lote = self._lotes.get(chave)
+
+            if lote is None:
+                if chave in self._sem_candidato:
+                    nao_vieram.append(self._sem_candidato[chave])
+                elif chave in self._recusados:
+                    nao_vieram.append(f"{faixa} — {self._recusados[chave]}")
+            elif lote.concluidas:
+                arquivos = ", ".join(
+                    Path(t.caminho_local).name or t.candidato.nome_arquivo
+                    for t in lote.concluidas
+                )
+                baixadas.append(f"{faixa} → {arquivos}")
+            elif lote.presas:
+                posicoes = [str(t.posicao_fila) for t in lote.presas if t.posicao_fila]
+                onde = f" (posição {', '.join(posicoes)})" if posicoes else ""
+                presas.append(f"{faixa}{onde}")
+            else:
+                nao_vieram.append(f"{faixa} — o download não completou")
+
+        andamento.baixadas = baixadas
+        andamento.presas = presas
+        andamento.nao_vieram = nao_vieram
+
+    @property
+    def contabilizadas(self) -> int:
+        """Quantas faixas já têm desfecho. Serve para conferir que nenhuma sumiu."""
+        return len({*self._lotes, *self._sem_candidato, *self._recusados})
 
     def _recolher(self, operario, pendentes, destino, andamento, bloquear: bool) -> None:
         """Move o que terminou para a pasta. **Nunca levanta.**
@@ -333,13 +399,14 @@ class TarefaDeDownload(QThread):
         if bloquear:
             for chave in list(pendentes):
                 lote = operario.acompanhar(pendentes[chave], espera_max_s=300)
-                self._guardar(operario, lote, destino, andamento)
+                self._guardar(operario, chave, lote, destino)
                 del pendentes[chave]
+            self._recalcular(andamento)
             return
 
         andando: list[tuple[str, int]] = []
         for chave, lote in operario.conferir_varios(dict(pendentes)).items():
-            self._guardar(operario, lote, destino, andamento)
+            self._guardar(operario, chave, lote, destino)
             andando += [
                 (t.candidato.nome_arquivo, int(t.progresso * 100))
                 for t in lote.transferencias
@@ -348,11 +415,13 @@ class TarefaDeDownload(QThread):
             if lote.tudo_terminou:
                 del pendentes[chave]
         andamento.baixando = andando
+        self._recalcular(andamento)
 
-    @staticmethod
-    def _guardar(operario, lote, destino, andamento: Andamento) -> None:
-        for caminho in operario.organizar(lote, destino):
-            andamento.baixadas.append(caminho.name)
-        andamento.presas = [
-            t.candidato.nome_arquivo for t in lote.presas
-        ] or andamento.presas
+    def _guardar(self, operario, chave, lote, destino) -> None:
+        """Move o que terminou e guarda o lote sob a chave da faixa.
+
+        Guardar o LOTE, e nao remendar listas, e o que permite refazer o relatorio
+        inteiro a qualquer momento sem perder nada.
+        """
+        operario.organizar(lote, destino)
+        self._lotes[chave] = lote

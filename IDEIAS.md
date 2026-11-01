@@ -68,6 +68,29 @@ gravação. Duas músicas com o mesmo nome e o mesmo artista podem ser gravaçõ
 dá para confirmar o acerto sem ouvir. É mais um motivo para preferir o caminho da API ao
 caminho do navegador.
 
+### "De 21 músicas só aparecem 11": três defeitos com o mesmo sintoma
+Quem olha a tela vê uma coisa só — faixa que sumiu. Por baixo eram três causas diferentes, e
+nenhuma delas dava erro nenhum:
+
+1. **A lista era remendada, não refeita.** `presas` era *substituída* pelas presas do último
+   lote conferido a cada volta, em vez de acumulada.
+2. **Download que falhou não tinha lista.** Baixou, prendeu na fila ou não achou — eram os
+   três destinos possíveis. Enfileirou e *não completou* não era nenhum deles, e a faixa
+   evaporava.
+3. **A chave da faixa era o endereço do objeto na memória** (`id(resultado)`), e esse objeto
+   virava lixo na linha seguinte. O CPython reaproveita endereço de objeto recolhido, então
+   **duas faixas diferentes recebiam a mesma chave** e uma apagava o registro da outra. Com
+   30 faixas no teste, a perda é reprodutível.
+
+A lição que fica para o resto do app: **relatório não se remenda, se refaz.** Cada faixa tem
+um registro próprio sob uma chave estável (a posição na playlist), e o relatório é reconstruído
+do zero a cada atualização. Custa microssegundos em listas de dezenas de itens e dá a garantia
+que importa: *toda faixa aparece em exatamente um lugar.*
+
+E tem o outro lado: a janela precisou aprender a **encolher** coluna. Enquanto o relatório só
+crescia, acrescentar no fim bastava. Com o relatório refeito, uma faixa sai das presas quando
+termina — e uma lista que só cresce mostraria a mesma faixa em duas colunas para sempre.
+
 ---
 
 ## 🔮 Ideias futuras
